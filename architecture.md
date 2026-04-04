@@ -84,14 +84,19 @@ flowchart TD
     C1["Job #1<br/>(Unzip + Dispatch)"]
     C2["Job #2<br/>(Unzip + Dispatch)"]
     C3["Job #N<br/>(Unzip + Dispatch)"]
-    E1["FTP/HDL/SD<br/>Adapters"]
+    E1["FTP Adapter"]
+    E2["HDL Adapter"]
+    E3["SD Adapter"]
     A --> B
     B --> C1
     B --> C2
     B --> C3
     C1 --> E1
+    C1 --> E2
+    C1 --> E3
     C2 --> E1
-    C3 --> E1
+    C2 --> E2
+    C2 --> E3
 ```
 
 **Characteristics:**
