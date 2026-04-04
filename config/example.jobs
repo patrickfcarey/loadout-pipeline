@@ -1,0 +1,4 @@
+# format: iso_path~destination_type|destination_path
+/isos/game1.iso~ftp|/remote/path/game1
+/isos/game2.iso~hdl|/dev/hdd0
+/isos/game3.iso~sd|/mnt/sdcard/games
