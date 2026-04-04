@@ -9,6 +9,7 @@ source "$ROOT_DIR/lib/queue.sh"
 source "$ROOT_DIR/lib/workers.sh"
 
 CONFIG_FILE="${1:-$ROOT_DIR/config/example.jobs}"
+USE_XARGS="${USE_XARGS:-false}"
 
 echo "[loadout-pipeline] Initializing environment..."
 init_environment
