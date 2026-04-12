@@ -2,3 +2,6 @@ tmp/
 logs/
 *.swp
 *.DS_Store
+*.iso
+test/fixtures/isos/
+.env

@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 
-QUEUE_DIR="/tmp/iso_pipeline_queue"
-mkdir -p "$QUEUE_DIR"
-
 queue_init() {
+    mkdir -p "$QUEUE_DIR"
     rm -rf "$QUEUE_DIR"/*
 }
 
@@ -15,8 +13,16 @@ queue_push() {
 }
 
 queue_pop() {
-    local file
-    file=$(ls "$QUEUE_DIR" | head -n1) || return 1
-    cat "$QUEUE_DIR/$file"
-    rm -f "$QUEUE_DIR/$file"
+    local file claimed
+    for file in "$QUEUE_DIR"/*.job; do
+        # Glob yields the literal pattern string when no files match
+        [[ -e "$file" ]] || return 1
+        claimed="${file}.claimed.$$"
+        # mv is atomic on the same filesystem: only one worker wins the race
+        mv "$file" "$claimed" 2>/dev/null || continue
+        cat "$claimed"
+        rm -f "$claimed"
+        return 0
+    done
+    return 1
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 job="$1"
 
 IFS='~' read -r iso rest <<< "$job"

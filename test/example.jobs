@@ -1,0 +1,5 @@
+# Test jobs — run test/fixtures/create_fixtures.sh first to generate the .iso archives.
+# format: iso_path~adapter|destination_path
+/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game1.iso~ftp|/tmp/iso_pipeline_out/game1
+/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game2.iso~hdl|/tmp/iso_pipeline_out/game2
+/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game3.iso~sd|/tmp/iso_pipeline_out/game3
