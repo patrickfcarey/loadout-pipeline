@@ -5,3 +5,4 @@ logs/
 *.iso
 test/fixtures/isos/
 .env
+.claude/

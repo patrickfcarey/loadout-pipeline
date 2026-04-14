@@ -84,18 +84,33 @@ source "$INT_ROOT/suites/08_security.sh"
 source "$INT_ROOT/suites/09_real_archive.sh"
 # shellcheck source=/dev/null
 source "$INT_ROOT/suites/10_regression.sh"
+# shellcheck source=/dev/null
+source "$INT_ROOT/suites/11_negative.sh"
+# shellcheck source=/dev/null
+source "$INT_ROOT/suites/12_docker_pipeline.sh"
 
 # ── summary ──────────────────────────────────────────────────────────────────
 _print_summary
 
-# Note for the operator: four stub-adapter scenarios are expected to FAIL
-# until real implementations land. They are intentionally hard-failing —
-# see test/integration/suites/07_adapters.sh for the per-scenario
-# justification.
+# Note for the operator:
+#
+#   Suite 07: four stub-adapter scenarios (ftp, hdl_dump, rclone, rsync) are
+#   expected to FAIL until real implementations land. They are intentionally
+#   hard-failing — see test/integration/suites/07_adapters.sh.
+#
+#   Suite 11: 15 negative scenarios — each deliberately uses a wrong expected
+#   value and passes iff the assertion helper detected the injected error.
+#   All 15 should PASS. A FAIL in suite 11 means an assertion helper has a
+#   blind spot.
+#
+#   Suite 12: DinD scenarios — invoke the production Docker image as a black
+#   box. Requires /var/run/docker.sock and the INT_HOST_SCRATCH shared volume
+#   provided by launch.sh. All suite 12 scenarios should PASS.
 if (( FAIL > 0 )); then
     echo ""
     echo "Reminder: stub-adapter scenarios (ftp, hdl_dump, rclone, rsync)"
     echo "are intentional FAILs until those adapters are implemented."
+    echo "Suite 11 (negative) and suite 12 (DinD) should contribute 0 FAILs."
 fi
 
 [[ $FAIL -eq 0 ]]

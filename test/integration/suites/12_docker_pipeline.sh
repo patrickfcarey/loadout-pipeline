@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# test/integration/suites/12_docker_pipeline.sh
+#
+# Docker-in-Docker (DinD) suite. Validates the production Docker image as a
+# black box: the integration harness sets up inputs in a shared host scratch
+# directory ($INT_HOST_SCRATCH / /scratch), invokes the production container
+# via the host Docker socket, then verifies outputs.
+#
+# The production container ($PROD_IMAGE) knows nothing about the test harness.
+# It receives mounts and environment variables exactly as a real user would
+# supply them. This proves that the shipped image is independently functional.
+#
+# Prerequisites supplied by launch.sh:
+#   PROD_IMAGE        — name:tag of the production image to test
+#   INT_HOST_SCRATCH  — host-side path to the shared scratch dir
+#   /scratch          — same dir, bind-mounted into this (outer) container
+#
+# Path conventions used throughout this suite:
+#   Host (outer view)          →  Inner container mount
+#   $INT_HOST_SCRATCH/fixtures →  /isos   (read-only archive source)
+#   $INT_HOST_SCRATCH/jobs     →  /jobs   (read-only job profiles)
+#   $INT_HOST_SCRATCH/sd-DX    →  /mnt/sdcard  (writable SD destination)
+#
+# Job files reference /isos/... paths because that is what the inner container
+# sees — the host-side $INT_FIXTURES path is not visible inside it.
+
+# ─── guard: skip gracefully if DinD prerequisites are absent ─────────────────
+#
+# If launch.sh did not pass PROD_IMAGE or the Docker socket is not accessible,
+# skip the suite with a single FAIL rather than crashing the entire run. This
+# lets the suite file be sourced safely in environments that do not support DinD
+# (e.g. CI without socket access).
+
+if [[ -z "${PROD_IMAGE:-}" ]]; then
+    header "Int Suite 12: DinD — production image"
+    fail "PROD_IMAGE not set — was this suite launched via launch.sh?"
+    return 0
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    header "Int Suite 12: DinD — production image"
+    fail "Docker socket not accessible — launch.sh must pass -v /var/run/docker.sock"
+    return 0
+fi
+
+if [[ -z "${INT_HOST_SCRATCH:-}" ]]; then
+    header "Int Suite 12: DinD — production image"
+    fail "INT_HOST_SCRATCH not set — launch.sh must create and export this variable"
+    return 0
+fi
+
+# ─── suite setup: stage fixtures in shared host scratch ──────────────────────
+#
+# Copy the integration fixture archives from their container-internal location
+# ($INT_FIXTURES) to /scratch/fixtures/ so the inner container can mount them
+# as /isos. This copy is done once for the whole suite.
+
+D12_FIXTURES="/scratch/fixtures"
+D12_JOBS="/scratch/jobs"
+mkdir -p "$D12_FIXTURES" "$D12_JOBS"
+
+# Copy archives only if not already staged (idempotent across reruns).
+for arc in small.7z medium.7z multi.7z; do
+    [[ -f "$D12_FIXTURES/$arc" ]] || cp "$INT_FIXTURES/$arc" "$D12_FIXTURES/$arc"
+done
+
+# ─── helper: _int_run_prod ────────────────────────────────────────────────────
+#
+# Invoke the production container for one scenario.
+#
+# Parameters:
+#   $1   label        — short identifier used in volume/log names and messages
+#   $2   jobs_file    — basename of the .jobs file in /scratch/jobs/
+#   $3   host_sd_dir  — host-side path to the SD card destination directory
+#   ...  extra flags  — additional -e KEY=VALUE flags forwarded to docker run
+#
+# Returns the docker run exit code.
+
+_int_run_prod() {
+    local label="$1" jobs_file="$2" host_sd_dir="$3"; shift 3
+
+    docker run --rm \
+        -v "$INT_HOST_SCRATCH/fixtures:/isos:ro" \
+        -v "$INT_HOST_SCRATCH/jobs:/jobs:ro" \
+        -v "$host_sd_dir:/mnt/sdcard" \
+        -e SD_MOUNT_POINT=/mnt/sdcard \
+        -e QUEUE_DIR=/tmp/iso_pipeline_queue \
+        -e EXTRACT_DIR=/tmp/iso_pipeline \
+        -e COPY_DIR=/tmp/iso_pipeline_copies \
+        -e ALLOW_STUB_ADAPTERS=1 \
+        "$@" \
+        "$PROD_IMAGE" \
+        "/jobs/$jobs_file"
+}
+
+# ─── D1: basic SD run — two archives ─────────────────────────────────────────
+#
+# Writes two sd jobs using /isos/ paths (inner-container view), runs the
+# production container, and asserts both archives were dispatched to the SD
+# destination. Tree equality is checked against archives decoded directly from
+# the fixture files by the outer container.
+
+header "Int Suite 12 D1: DinD — basic SD run (small + medium)"
+
+D1_SD="$INT_HOST_SCRATCH/sd-d1"
+mkdir -p "$D1_SD"
+
+cat > "$D12_JOBS/d1.jobs" <<'EOF'
+~/isos/small.7z|sd|d1/small~
+~/isos/medium.7z|sd|d1/medium~
+EOF
+
+D1_LOG="/scratch/d1.log"
+set +e
+_int_run_prod "d1" "d1.jobs" "$D1_SD" >"$D1_LOG" 2>&1
+d1_rc=$?
+set -e
+
+assert_rc "$d1_rc" 0 "D1 pipeline rc"
+
+# Decode expected trees from the archives (outer container has 7z).
+D1_EXP="$INT_STATE/d1_expected"
+rm -rf "$D1_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$D1_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$D1_EXP/medium"
+
+assert_tree_eq "$D1_EXP/small"  "/scratch/sd-d1/d1/small"  "D1 small on SD"
+assert_tree_eq "$D1_EXP/medium" "/scratch/sd-d1/d1/medium" "D1 medium on SD"
+
+# ─── D2: env var passthrough — MAX_UNZIP=1 ───────────────────────────────────
+#
+# Passes MAX_UNZIP=1 via -e to the production container and confirms the
+# pipeline still completes correctly with serial extraction. The same two
+# archives as D1 are used so expected trees are reused.
+
+header "Int Suite 12 D2: DinD — env var passthrough (MAX_UNZIP=1)"
+
+D2_SD="$INT_HOST_SCRATCH/sd-d2"
+mkdir -p "$D2_SD"
+
+cat > "$D12_JOBS/d2.jobs" <<'EOF'
+~/isos/small.7z|sd|d2/small~
+~/isos/medium.7z|sd|d2/medium~
+EOF
+
+D2_LOG="/scratch/d2.log"
+set +e
+_int_run_prod "d2" "d2.jobs" "$D2_SD" -e MAX_UNZIP=1 >"$D2_LOG" 2>&1
+d2_rc=$?
+set -e
+
+assert_rc "$d2_rc" 0 "D2 pipeline rc"
+assert_tree_eq "$D1_EXP/small"  "/scratch/sd-d2/d2/small"  "D2 small on SD"
+assert_tree_eq "$D1_EXP/medium" "/scratch/sd-d2/d2/medium" "D2 medium on SD"
+
+# ─── D3: directory profile ────────────────────────────────────────────────────
+#
+# Places two .jobs files in a subdirectory of the shared scratch, passes the
+# directory (not a file) as the profile argument, and asserts that jobs from
+# both files were loaded and dispatched. Validates the directory-as-profile
+# feature through the production container.
+
+header "Int Suite 12 D3: DinD — directory profile"
+
+D3_SD="$INT_HOST_SCRATCH/sd-d3"
+D3_PROFILES="$INT_HOST_SCRATCH/profiles-d3"
+mkdir -p "$D3_SD" "$D3_PROFILES"
+
+cat > "$D3_PROFILES/a.jobs" <<'EOF'
+~/isos/small.7z|sd|d3/small~
+EOF
+cat > "$D3_PROFILES/b.jobs" <<'EOF'
+~/isos/medium.7z|sd|d3/medium~
+EOF
+
+D3_LOG="/scratch/d3.log"
+set +e
+docker run --rm \
+    -v "$INT_HOST_SCRATCH/fixtures:/isos:ro" \
+    -v "$D3_PROFILES:/jobs:ro" \
+    -v "$D3_SD:/mnt/sdcard" \
+    -e SD_MOUNT_POINT=/mnt/sdcard \
+    -e QUEUE_DIR=/tmp/iso_pipeline_queue \
+    -e EXTRACT_DIR=/tmp/iso_pipeline \
+    -e COPY_DIR=/tmp/iso_pipeline_copies \
+    -e ALLOW_STUB_ADAPTERS=1 \
+    "$PROD_IMAGE" \
+    /jobs \
+    >"$D3_LOG" 2>&1
+d3_rc=$?
+set -e
+
+assert_rc "$d3_rc" 0 "D3 pipeline rc"
+assert_tree_eq "$D1_EXP/small"  "/scratch/sd-d3/d3/small"  "D3 small on SD (dir profile)"
+assert_tree_eq "$D1_EXP/medium" "/scratch/sd-d3/d3/medium" "D3 medium on SD (dir profile)"

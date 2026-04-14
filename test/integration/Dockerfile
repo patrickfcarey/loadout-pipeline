@@ -40,6 +40,7 @@ RUN apt-get update \
         rclone \
         jq \
         ca-certificates \
+        docker.io \
  && rm -rf /var/lib/apt/lists/*
 
 # sshd needs /run/sshd to exist before it can start.

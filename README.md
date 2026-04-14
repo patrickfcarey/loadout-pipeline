@@ -539,6 +539,149 @@ bash bin/loadout-pipeline.sh examples/ftp_server.jobs
 
 ---
 
+## Docker
+
+The pipeline ships as a self-contained Docker image. All environment variables, profile path arguments, and adapter configurations documented in [Usage](#usage) work identically inside the container — supply them via `-e` flags or a bind-mounted `.env` file.
+
+### Build
+
+```bash
+docker build -t loadout-pipeline .
+```
+
+### Mount conventions
+
+| Mount path inside container | Purpose |
+|-----------------------------|---------|
+| `/isos` | Read-only source archives — reference these paths in `.jobs` files |
+| `/jobs` | Read-only job profiles — `.jobs` file or directory of `.jobs` files |
+| `/mnt/sdcard` | Writable SD card destination (`SD_MOUNT_POINT` default) |
+| `/opt/loadout-pipeline/.env` | Optional credentials file (bind-mount, never bake in) |
+
+Mount your SD card on the host first (`sudo mount /dev/sdX /mnt/sdcard`), then pass that path as a volume. The container never touches the block device directly so `--privileged` is not required for the SD adapter.
+
+### SD card adapter
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -v /path/to/profiles:/jobs:ro \
+  -e SD_MOUNT_POINT=/mnt/sdcard \
+  loadout-pipeline /jobs/my_games.jobs
+```
+
+### Credentials via .env (recommended for FTP/rsync passwords)
+
+```bash
+# Keep credentials in a mode-600 file; never pass them on the command line
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -v ~/.config/loadout/.env:/opt/loadout-pipeline/.env:ro \
+  loadout-pipeline /jobs/my_games.jobs
+```
+
+### Inline env vars
+
+All documented variables are accepted via `-e`. Inline flags take priority over `.env`:
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -e MAX_UNZIP=4 \
+  -e SD_MOUNT_POINT=/mnt/sdcard \
+  loadout-pipeline /jobs/my_games.jobs
+```
+
+### rclone adapter
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v ~/.config/rclone:/root/.config/rclone:ro \
+  -e RCLONE_REMOTE=mys3: \
+  -e RCLONE_DEST_BASE=/backups/games \
+  loadout-pipeline /jobs/rclone.jobs
+```
+
+### rsync adapter — local target
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/nas:/mnt/nas \
+  -e RSYNC_DEST_BASE=/mnt/nas/games \
+  loadout-pipeline /jobs/rsync.jobs
+```
+
+### rsync adapter — remote target
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v ~/.ssh:/root/.ssh:ro \
+  -e RSYNC_HOST=192.168.1.10 \
+  -e RSYNC_USER=games \
+  -e RSYNC_DEST_BASE=/srv/games \
+  loadout-pipeline /jobs/rsync.jobs
+```
+
+### Directory profile
+
+Pass a directory instead of a single file — every `*.jobs` file inside is loaded alphabetically:
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -v /path/to/profiles:/jobs:ro \
+  loadout-pipeline /jobs/
+```
+
+### Default profile (no argument)
+
+Omit the argument to run the built-in `examples/example.jobs`:
+
+```bash
+docker run --rm loadout-pipeline
+```
+
+### Concurrent isolated runs
+
+Each run needs its own `QUEUE_DIR` and `EXTRACT_DIR` to avoid collision:
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -e QUEUE_DIR=/tmp/q_ps1 \
+  -e EXTRACT_DIR=/tmp/ex_ps1 \
+  loadout-pipeline /jobs/ps1.jobs &
+
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -e QUEUE_DIR=/tmp/q_ps2 \
+  -e EXTRACT_DIR=/tmp/ex_ps2 \
+  loadout-pipeline /jobs/ps2.jobs &
+
+wait
+```
+
+### Debug output
+
+```bash
+docker run --rm \
+  -v /path/to/isos:/isos:ro \
+  -v /mnt/sdcard:/mnt/sdcard \
+  -e DEBUG_IND=1 \
+  loadout-pipeline /jobs/my_games.jobs 2>debug.log
+```
+
+---
+
 ## Job File Format
 
 Each line must start and end with `~`, with the three fields separated by `|`:

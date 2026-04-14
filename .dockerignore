@@ -1,0 +1,24 @@
+# .dockerignore
+#
+# Excludes files that should not be copied into the production image.
+# Test infrastructure, host credentials, and generated artifacts are all
+# excluded to keep the image lean and to prevent accidental credential leakage.
+
+# Git history
+.git
+.gitattributes
+
+# Credentials — never bake these in; bind-mount at runtime instead
+.env
+
+# Test infrastructure (not needed at runtime)
+test/
+
+# Editor and OS artifacts
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Generated test fixtures (large binary files, not needed at runtime)
+test/fixtures/isos/
