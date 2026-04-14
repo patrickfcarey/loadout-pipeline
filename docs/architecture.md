@@ -58,6 +58,7 @@ bin/loadout-pipeline.sh
     │       ├── space_reserve (flock) — rc=75 retry if no fit           │
     │       ├── cp <archive> → $COPY_SPOOL/<name>.<pid>                 │
     │       ├── 7z x -aoa    → $EXTRACT_DIR/<name>/                     │
+    │       ├── strip files listed in EXTRACT_STRIP_LIST                │
     │       ├── EXIT trap: space_release + scratch cleanup              │
     │       └── queue_push DISPATCH_QUEUE_DIR                           │
     │                                                                   │
@@ -106,8 +107,9 @@ available space. The space ledger prevents that.
 - The entire *read-ledger → call-`df` → arithmetic → append* sequence runs inside the lock, so the check-and-commit is atomic.
 - **Same-filesystem pooling:** if `COPY_DIR` and `EXTRACT_DIR` share a device (`stat -c %d`), reservations for both dirs are pooled against a single `df` number so free space is not double-counted.
 - **Overhead:** the byte requirement is inflated by `SPACE_OVERHEAD_PCT` (default 20%) to cover filesystem metadata, 7z temp files, and general slack.
-- **Release:** `extract.sh`'s EXIT trap calls `space_release` on every exit (success, failure, SIGTERM). SIGKILL can't run the trap, but `space_init` truncates the ledger at the start of every run so stale entries never leak.
-- **Retry loop:** if `space_reserve` returns rc=1 (no fit right now), `extract.sh` exits 75 and `unzip_worker` re-queues the job and tries again later. If the ledger is empty and the job *still* doesn't fit, the job is fatally oversized and fails.
+- **Release:** `extract.sh`'s EXIT trap calls `space_release` on every exit (success, failure, SIGTERM). SIGKILL can't run the trap, but `space_init` truncates the ledger at the start of every run so inter-run stale entries never leak.
+- **Phantom GC (intra-run):** every ledger entry stores the worker's `BASHPID` as a sixth field. Each call to `space_reserve` runs `_space_ledger_gc_phantoms` inside the lock, which uses `awk + system("kill -0 <pid>")` to evict any entry whose owner process is no longer alive. This prevents SIGKILL'd workers from blocking sibling workers for the remainder of the current run.
+- **Retry loop:** if `space_reserve` returns non-zero (no fit right now), `extract.sh` exits 75 and `unzip_worker` re-queues the job and tries again later with exponential backoff. If the ledger is empty after a failed reservation (no siblings hold space), the job is declared fatally oversized and fails immediately rather than waiting forever.
 - **Test hook:** `SPACE_AVAIL_OVERRIDE_BYTES` replaces the real `df` lookup so tests can simulate a small filesystem without root/tmpfs.
 
 ---
@@ -184,13 +186,28 @@ Override precedence (highest to lowest):
 2. `.env` file values
 3. Hardcoded fallbacks in `lib/config.sh`
 
+Key variables not visible in the pipeline core table:
+
+| Variable                          | Default                  | Description                                                                        |
+|-----------------------------------|--------------------------|------------------------------------------------------------------------------------|
+| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`   | File listing bare filenames to delete from every extracted archive before dispatch |
+| `DISPATCH_POLL_INITIAL_MS`        | `50`                     | Starting poll interval (ms) for dispatch workers when the dispatch queue is empty  |
+| `DISPATCH_POLL_MAX_MS`            | `500`                    | Maximum poll interval (ms) for the exponential dispatch backoff                    |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                      | Initial sleep (s) for an extract worker after a space-reservation miss             |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                     | Maximum sleep (s) for the exponential space-retry backoff                          |
+
 See `.env.example` for the full variable reference.
 
 ---
 
 ## Adapters
 
-All adapters (`ftp`, `hdl`, `sd`, `rclone`, `rsync`) are **stubs**. They log
+The SD card adapter (`adapters/sdcard.sh`) is **fully implemented**: it
+validates `SD_MOUNT_POINT`, performs a `realpath -m` containment check to
+prevent destination-escape via `..` segments, and copies using `rsync -a`
+(with a `cp -r` fallback when rsync is unavailable).
+
+All other adapters (`ftp`, `hdl`, `rclone`, `rsync`) are **stubs** — they log
 what they would do but do not transfer any files. Each script contains a
 `TODO` marker and implementation notes.
 

@@ -10,7 +10,8 @@
       "Bash(rmdir /mnt/c/Github/loadout-pipeline/config)",
       "Bash(bash /mnt/c/Github/loadout-pipeline/test/fixtures/create_fixtures.sh)",
       "Bash(7z l:*)",
-      "Bash(awk '/^Path = / { sub\\(/^Path = /, \"\"\\); print }')"
+      "Bash(awk '/^Path = / { sub\\(/^Path = /, \"\"\\); print }')",
+      "Bash(bash:*)"
     ]
   }
 }

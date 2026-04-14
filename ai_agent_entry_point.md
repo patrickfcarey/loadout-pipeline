@@ -14,7 +14,7 @@ This document is the primary onboarding reference for AI agents working on the `
 - **Shared space reservation ledger** (`lib/space.sh`) — `flock`-guarded so concurrent workers never collectively over-commit scratch space
 - **Per-run scratch spool isolation** (`COPY_SPOOL=$COPY_DIR/$$`) with a startup sweep of dead-PID subdirs
 - **Intra-run recovery of SIGKILL'd workers** via a worker registry (`lib/worker_registry.sh`) and a recovery loop in `workers_start` capped at `MAX_RECOVERY_ATTEMPTS`
-- **Multiple dispatch adapters**: FTP, HDL dump, SD card, rclone, rsync (all stubs)
+- **Multiple dispatch adapters**: FTP (stub), HDL dump (stub), SD card (**implemented**), rclone (stub), rsync (stub)
 - **Pluggable adapter architecture** — add a new `adapters/<name>.sh` + case arms in `lib/dispatch.sh` and `lib/precheck.sh` + a key in the `lib/jobs.sh` regex
 - **Structured logging** controlled by `DEBUG_IND`
 
@@ -42,7 +42,7 @@ loadout-pipeline/
 ├── adapters/
 │   ├── ftp.sh                 # FTP transfer stub
 │   ├── hdl_dump.sh            # HDL dump stub (PS2)
-│   ├── sdcard.sh              # SD card copy stub
+│   ├── sdcard.sh              # SD card copy — IMPLEMENTED (rsync -a / cp -r fallback)
 │   ├── rclone.sh              # rclone stub
 │   └── rsync.sh               # rsync stub (local or remote)
 ├── examples/
@@ -72,16 +72,21 @@ Priority: caller-supplied env var > `.env` > hardcoded default in `lib/config.sh
 
 **Pipeline core variables:**
 
-| Variable                | Default                     | Description                                              |
-|-------------------------|-----------------------------|----------------------------------------------------------|
-| `DEBUG_IND`             | `0`                         | `1` = verbose function entry/exit logging to stderr      |
-| `MAX_UNZIP`             | `2`                         | Parallel extract-stage workers                           |
-| `MAX_DISPATCH`          | `2`                         | Parallel dispatch-stage workers                          |
-| `QUEUE_DIR`             | `/tmp/iso_pipeline_queue`   | Parent of extract + dispatch queues, ledger, registry    |
-| `EXTRACT_DIR`           | `/tmp/iso_pipeline`         | Scratch directory for extracted ISO contents             |
-| `COPY_DIR`              | `/tmp/iso_pipeline_copies`  | Parent of per-run spool (`$COPY_DIR/$$` = `COPY_SPOOL`)  |
-| `SPACE_OVERHEAD_PCT`    | `20`                        | % overhead added to raw space requirement                 |
-| `MAX_RECOVERY_ATTEMPTS` | `3`                         | Max intra-run recovery passes for SIGKILL'd workers       |
+| Variable                          | Default                     | Description                                                                           |
+|-----------------------------------|-----------------------------|---------------------------------------------------------------------------------------|
+| `DEBUG_IND`                       | `0`                         | `1` = verbose function entry/exit logging to stderr                                   |
+| `MAX_UNZIP`                       | `2`                         | Parallel extract-stage workers                                                        |
+| `MAX_DISPATCH`                    | `2`                         | Parallel dispatch-stage workers                                                       |
+| `QUEUE_DIR`                       | `/tmp/iso_pipeline_queue`   | Parent of extract + dispatch queues, space ledger, and worker registry                |
+| `EXTRACT_DIR`                     | `/tmp/iso_pipeline`         | Scratch directory for extracted ISO contents                                          |
+| `COPY_DIR`                        | `/tmp/iso_pipeline_copies`  | Parent of per-run spool (`$COPY_DIR/$$` = `COPY_SPOOL`)                               |
+| `SPACE_OVERHEAD_PCT`              | `20`                        | % overhead added to raw space requirement                                             |
+| `MAX_RECOVERY_ATTEMPTS`           | `3`                         | Max intra-run recovery passes for SIGKILL'd workers                                   |
+| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`      | File listing filenames to delete from every extracted archive before dispatch         |
+| `DISPATCH_POLL_INITIAL_MS`        | `50`                        | Starting poll interval (ms) for dispatch workers on an empty queue                    |
+| `DISPATCH_POLL_MAX_MS`            | `500`                       | Maximum poll interval (ms) for the exponential dispatch backoff                       |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                         | Initial sleep (s) for an extract worker after a space-reservation miss                |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                        | Maximum sleep (s) for the exponential space-retry backoff                             |
 
 **Adapter variables:** FTP (`FTP_HOST/USER/PASS/PORT`), HDL (`HDL_DUMP_BIN`), SD (`SD_MOUNT_POINT`), rclone (`RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`), rsync (`RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS`).
 
@@ -209,15 +214,15 @@ source "$ROOT_DIR/lib/workers.sh"
 
 ## Adapters
 
-> **All adapters are stubs.** They log what they would do but do not transfer files.
+| Adapter  | Key      | Script                 | Status          | Required env vars                                                             |
+|----------|----------|------------------------|-----------------|-------------------------------------------------------------------------------|
+| FTP      | `ftp`    | `adapters/ftp.sh`      | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                |
+| HDL dump | `hdl`    | `adapters/hdl_dump.sh` | Stub            | `HDL_DUMP_BIN`                                                                |
+| SD card  | `sd`     | `adapters/sdcard.sh`   | **Implemented** | `SD_MOUNT_POINT`                                                              |
+| rclone   | `rclone` | `adapters/rclone.sh`   | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                           |
+| rsync    | `rsync`  | `adapters/rsync.sh`    | Stub            | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS`|
 
-| Adapter  | Key      | Script                 | Required env vars                                                             |
-|----------|----------|------------------------|-------------------------------------------------------------------------------|
-| FTP      | `ftp`    | `adapters/ftp.sh`      | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
-| HDL dump | `hdl`    | `adapters/hdl_dump.sh` | `HDL_DUMP_BIN`                                                                 |
-| SD card  | `sd`     | `adapters/sdcard.sh`   | `SD_MOUNT_POINT`                                                               |
-| rclone   | `rclone` | `adapters/rclone.sh`   | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                            |
-| rsync    | `rsync`  | `adapters/rsync.sh`    | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` |
+Stub adapters log what they would do but do not transfer files. The SD card adapter is fully implemented: it validates `SD_MOUNT_POINT`, performs a path-containment check against the mount root, and copies using `rsync -a` (with a `cp -r` fallback when rsync is unavailable).
 
 Each adapter receives `$1` = source directory (extracted contents) and `$2` = adapter-specific destination.
 
@@ -240,7 +245,9 @@ To add a new adapter:
 - **Space reservations are mandatory** for any worker touching scratch disk — call `space_reserve` under the flock and `space_release` in an EXIT trap.
 - **Any worker touching the extract queue** must bracket its work with `worker_job_begin` / `worker_job_end` so intra-run recovery can detect orphans.
 - **`COPY_SPOOL` is the per-run scratch dir** — `extract.sh` reads `${COPY_SPOOL:-$COPY_DIR}`. Never hard-code `COPY_DIR` as a destination.
-- **Adapters are stubs** — do not expect real file transfers. See the `TODO` markers.
+- **Strip list runs before dispatch** — after successful extraction, `extract.sh` deletes any filenames listed in `EXTRACT_STRIP_LIST` (default `strip.list`) from the extracted directory before pushing to the dispatch queue. `precheck.sh` is strip-list aware and does not require stripped files to be present at the destination.
+- **SD card adapter is fully implemented** — all other adapters are stubs. See the `TODO` markers in each stub for implementation guidance.
+- **Credentials are scoped per adapter** — `lib/dispatch.sh` uses `env -u` to strip every other adapter's env vars before forking the target adapter. Only the vars the active adapter needs are visible to it.
 
 ---
 

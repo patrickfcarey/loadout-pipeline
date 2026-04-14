@@ -75,18 +75,23 @@ All available variables (see `.env.example` for the full annotated reference):
 
 **Pipeline core**
 
-| Variable                | Default                    | Description                                                           |
-|-------------------------|----------------------------|-----------------------------------------------------------------------|
-| `DEBUG_IND`             | `0`                        | Set to `1` for verbose function entry/exit logging to stderr          |
-| `MAX_UNZIP`             | `2`                        | Number of parallel extract-stage workers                              |
-| `MAX_DISPATCH`          | `2`                        | Number of parallel dispatch-stage workers                             |
-| `QUEUE_DIR`             | `/tmp/iso_pipeline_queue`  | Parent directory that holds the two sub-queues                        |
-| `EXTRACT_QUEUE_DIR`     | `$QUEUE_DIR/extract`       | Sub-queue of archives waiting to be copied and extracted              |
-| `DISPATCH_QUEUE_DIR`    | `$QUEUE_DIR/dispatch`      | Sub-queue of extracted directories waiting to be handed to an adapter |
-| `EXTRACT_DIR`           | `/tmp/iso_pipeline`        | Directory where archives are extracted during processing              |
-| `COPY_DIR`              | `/tmp/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`  |
-| `SPACE_OVERHEAD_PCT`    | `20`                       | Percent overhead added to raw byte requirement in space reservations  |
-| `MAX_RECOVERY_ATTEMPTS` | `3`                        | Max intra-run recovery passes after SIGKILL'd worker(s) are detected  |
+| Variable                          | Default                    | Description                                                                                  |
+|-----------------------------------|----------------------------|----------------------------------------------------------------------------------------------|
+| `DEBUG_IND`                       | `0`                        | Set to `1` for verbose function entry/exit logging to stderr                                 |
+| `MAX_UNZIP`                       | `2`                        | Number of parallel extract-stage workers                                                     |
+| `MAX_DISPATCH`                    | `2`                        | Number of parallel dispatch-stage workers                                                    |
+| `QUEUE_DIR`                       | `/tmp/iso_pipeline_queue`  | Parent directory that holds the two sub-queues, space ledger, and worker registry           |
+| `EXTRACT_QUEUE_DIR`               | `$QUEUE_DIR/extract`       | Sub-queue of archives waiting to be copied and extracted                                     |
+| `DISPATCH_QUEUE_DIR`              | `$QUEUE_DIR/dispatch`      | Sub-queue of extracted directories waiting to be handed to an adapter                       |
+| `EXTRACT_DIR`                     | `/tmp/iso_pipeline`        | Directory where archives are extracted during processing                                     |
+| `COPY_DIR`                        | `/tmp/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`                         |
+| `SPACE_OVERHEAD_PCT`              | `20`                       | Percent overhead added to raw byte requirement in space reservations                         |
+| `MAX_RECOVERY_ATTEMPTS`           | `3`                        | Max intra-run recovery passes after SIGKILL'd worker(s) are detected                        |
+| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`     | Path to a file listing exact filenames (one per line) to delete from every extracted archive before dispatch; set to empty to disable |
+| `DISPATCH_POLL_INITIAL_MS`        | `50`                       | Starting poll interval (milliseconds) for dispatch workers when the dispatch queue is empty  |
+| `DISPATCH_POLL_MAX_MS`            | `500`                      | Maximum poll interval (milliseconds) for the exponential dispatch backoff                    |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                        | Initial sleep (seconds) for an extract worker after a space-reservation miss                 |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                       | Maximum sleep (seconds) for the exponential space-retry backoff                              |
 
 **SD card adapter** (`adapters/sdcard.sh`) — **implemented**
 
@@ -317,6 +322,27 @@ To add a new adapter: create `adapters/<name>.sh`, add a matching case to `lib/d
 
 ---
 
+## Post-extraction strip list
+
+The pipeline can automatically delete specific files from every extracted archive before its contents are dispatched. This is useful for download-site metadata files you never want on your destination (e.g. `Vimm's Lair.txt`).
+
+Edit `strip.list` in the project root (one exact filename per line):
+
+```
+# Files to automatically delete from every extracted archive before dispatch.
+# One exact filename per line. Only top-level members are matched.
+Vimm's Lair.txt
+```
+
+- Only bare filenames are supported — paths containing `/` are rejected with a warning.
+- Blank lines and lines starting with `#` are ignored.
+- The strip list is applied **before** dispatch, so stripped files never reach the adapter destination.
+- The precheck (`lib/precheck.sh`) is strip-list aware: when deciding whether a job can be skipped, it does not require stripped files to be present at the destination. This keeps re-runs idempotent even after files have been stripped.
+
+To use a different file, set `EXTRACT_STRIP_LIST=/path/to/your.list` in `.env` or at call time. Set it to an empty value or a non-existent path to disable stripping entirely.
+
+---
+
 ## Security considerations
 
 - **The pipeline trusts its `.env` and its job file — treat both as code.** Do not point the pipeline at profiles from untrusted sources. The job-line validator rejects shell metacharacters and `..` path traversal, but a job file is ultimately an instruction list and should be controlled by you.
@@ -330,7 +356,7 @@ To add a new adapter: create `adapters/<name>.sh`, add a matching case to `lib/d
   ```
   The pipeline validates that these directories are not symlinks and are owned by the current user before writing to them.
 - **Keep `.env` private.** It contains credentials in plaintext. `chmod 600 .env` and never commit it (it is already listed in `.gitignore`).
-- **Credentials are inherited by all worker subprocesses.** Until adapter-level credential scoping is implemented, `FTP_PASS` and other secrets are visible in the environment of every forked subprocess. Audit any custom wrapper scripts that exec from inside the pipeline accordingly.
+- **Adapter credentials are scoped at dispatch time.** `lib/dispatch.sh` uses `env -u` to strip every other adapter's environment variables before forking the target adapter script. For example, when dispatching to FTP the HDL, SD, rclone, and rsync variables are removed from the subprocess environment, and vice versa. Custom wrapper scripts that exec from inside an adapter script should be audited to ensure they do not re-export credentials they received.
 
 ---
 
