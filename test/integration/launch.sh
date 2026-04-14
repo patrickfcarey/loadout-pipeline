@@ -26,7 +26,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE_TAG="${INT_IMAGE_TAG:-loadout-pipeline-integration:local}"
-DOCKER="${INT_DOCKER:-docker}"
+if [[ -n "${INT_DOCKER:-}" ]]; then
+    DOCKER="$INT_DOCKER"
+elif command -v docker >/dev/null 2>&1; then
+    DOCKER="docker"
+elif command -v podman >/dev/null 2>&1; then
+    DOCKER="podman"
+else
+    DOCKER="docker"   # fall through to the existing "not found" error below
+fi
 
 if ! command -v "$DOCKER" >/dev/null 2>&1; then
     echo "[launch] ERROR: '$DOCKER' not found on PATH." >&2
