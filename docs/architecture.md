@@ -1,38 +1,217 @@
-# iso-pipeline Architecture
+# loadout-pipeline Architecture
 
-      +-------------------+
-      |   Job File Input  |
-      |  (example.jobs)   |
-      +---------+---------+
-                |
-                v
-      +-------------------+
-      |      Queue        |
-      | (file-based tmp)  |
-      +---------+---------+
-                |
-   +------------+-------------+
-   |                          |
-   v                          v
+## Entry Point
 
-+-------------+ +-------------+
-| Unzip Worker| | Unzip Worker|
-| (bash) | | (bash) |
-+------+------+\ /+------+------+
-| \ / |
-v \ / v
-+-------------------+-------------------+
-| Dispatch Worker (per destination) |
-+---------+---------+---------+---------+
-| | |
-v v v
-FTP HDL SD
+`bin/loadout-pipeline.sh` is the single entry point. On startup it:
 
+1. Resolves `ROOT_DIR`
+2. Sources `lib/config.sh`, which loads `.env` and exports all configuration defaults
+3. Sources the remaining libraries in order: `logging.sh` → `init.sh` → `jobs.sh` → `queue.sh` → `workers.sh`
+4. Calls `init_environment`, `load_jobs`, then `workers_start`
 
-**Legend:**
+`lib/space.sh` and `lib/worker_registry.sh` are sourced lazily from inside
+`workers_start` (via `_pipeline_run_init`) because they only become relevant
+once a run actually begins.
 
-- **Job File Input** – plain text file listing ISO paths and destinations.  
-- **Queue** – bounded, temporary storage for jobs.  
-- **Unzip Workers** – parallel workers, extract ISOs into `/tmp`.  
-- **Dispatch Workers** – send unzipped content to configured adapters.  
-- **Adapters** – FTP, HDL dump, SD card, or future destinations.  
+---
+
+## Library Files
+
+| File                      | Responsibility                                                                 |
+|---------------------------|--------------------------------------------------------------------------------|
+| `lib/config.sh`           | `.env` loader + all exported variable defaults                                 |
+| `lib/logging.sh`          | `log_enter`, `log_debug`, `log_trace`, `log_warn`, `log_error` + RETURN trap   |
+| `lib/init.sh`             | `init_environment` — creates `EXTRACT_DIR`, `COPY_DIR`, `QUEUE_DIR`             |
+| `lib/job_format.sh`       | `parse_job_line` — canonical `~iso\|adapter\|dest~` parser, sourced by all stages |
+| `lib/jobs.sh`             | `load_jobs` — validate and parse the job file into `JOBS[]`                    |
+| `lib/queue.sh`            | `queue_init`, `queue_push`, `queue_pop` — file-based FIFO, parameterised on queue dir |
+| `lib/workers.sh`          | `workers_start`, `unzip_worker`, `dispatch_worker` — two-stage worker pools + recovery loop |
+| `lib/extract.sh`          | Per-job extract stage: precheck → space reservation → copy → 7z → dispatch push |
+| `lib/precheck.sh`         | Per-adapter "already at destination?" check                                    |
+| `lib/dispatch.sh`         | Routes a dispatch-stage job to the correct adapter by adapter type             |
+| `lib/space.sh`            | `flock`-guarded space reservation ledger (shared across concurrent workers)    |
+| `lib/worker_registry.sh`  | `flock`-guarded registry of in-flight jobs → enables intra-run recovery        |
+
+---
+
+## Pipeline Flow
+
+```
+bin/loadout-pipeline.sh
+│
+├── lib/init.sh        → create EXTRACT_DIR, COPY_DIR, QUEUE_DIR
+├── lib/jobs.sh        → parse job file → JOBS[]
+│
+└── lib/workers.sh (workers_start)
+    │
+    ├── _spool_sweep_and_claim   → sweep dead-PID subdirs in COPY_DIR,
+    │                               export COPY_SPOOL="$COPY_DIR/$$"
+    ├── _pipeline_run_init       → queues + sentinel + space ledger + registry
+    ├── push every JOBS[] entry onto EXTRACT_QUEUE_DIR
+    │
+    ├─── pass loop ────────────────────────────────────────────────────┐
+    │                                                                   │
+    │   [MAX_UNZIP extract workers]                                     │
+    │   │                                                               │
+    │   └── worker_job_begin → lib/extract.sh → worker_job_end          │
+    │       ├── lib/precheck.sh — already present? → [skip]             │
+    │       ├── space_reserve (flock) — rc=75 retry if no fit           │
+    │       ├── cp <archive> → $COPY_SPOOL/<name>.<pid>                 │
+    │       ├── 7z x -aoa    → $EXTRACT_DIR/<name>/                     │
+    │       ├── EXIT trap: space_release + scratch cleanup              │
+    │       └── queue_push DISPATCH_QUEUE_DIR                           │
+    │                                                                   │
+    │   [MAX_DISPATCH dispatch workers, concurrent with extract]        │
+    │   └── lib/dispatch.sh → adapter                                   │
+    │                                                                   │
+    │   after all workers exit:                                         │
+    │   _recover_orphans → worker_registry_recover → re-queue orphans   │
+    │   loop again (up to MAX_RECOVERY_ATTEMPTS passes)                 │
+    ├───────────────────────────────────────────────────────────────────┘
+    │
+    └── rm -rf "$COPY_SPOOL"
+```
+
+Termination of a single pass: after all extract workers exit, `workers_start`
+writes `$QUEUE_DIR/.extract_done`. Dispatch workers exit the moment both
+conditions hold — dispatch queue empty AND the sentinel file exists.
+
+---
+
+## Queue Design
+
+Two sub-queues live inside `$QUEUE_DIR`:
+
+| Sub-queue             | Default                               |
+|-----------------------|---------------------------------------|
+| `EXTRACT_QUEUE_DIR`   | `$QUEUE_DIR/extract`                  |
+| `DISPATCH_QUEUE_DIR`  | `$QUEUE_DIR/dispatch`                 |
+
+Each sub-queue is a directory of `.job` files.
+
+- `queue_push <dir> <job>` writes `<nanosecond_timestamp>.<pid>.job` — one file per job
+- `queue_pop <dir>` uses a glob + atomic `mv` to claim a file before reading it
+- The `mv` claim prevents two workers from processing the same job (race-safe)
+- `queue_init <dir>` clears a sub-queue at the start of each pipeline run (and between recovery passes)
+
+---
+
+## Space Reservation Ledger (`lib/space.sh`)
+
+Without coordination, N concurrent workers could all call `df`, all see the
+same free bytes, all decide they fit, and collectively consume N× the
+available space. The space ledger prevents that.
+
+- Every reservation goes through `space_reserve <id> <copy_dir> <copy_bytes> <extract_dir> <extract_bytes>`, which acquires an exclusive `flock` on `$QUEUE_DIR/.space_ledger.lock`.
+- The entire *read-ledger → call-`df` → arithmetic → append* sequence runs inside the lock, so the check-and-commit is atomic.
+- **Same-filesystem pooling:** if `COPY_DIR` and `EXTRACT_DIR` share a device (`stat -c %d`), reservations for both dirs are pooled against a single `df` number so free space is not double-counted.
+- **Overhead:** the byte requirement is inflated by `SPACE_OVERHEAD_PCT` (default 20%) to cover filesystem metadata, 7z temp files, and general slack.
+- **Release:** `extract.sh`'s EXIT trap calls `space_release` on every exit (success, failure, SIGTERM). SIGKILL can't run the trap, but `space_init` truncates the ledger at the start of every run so stale entries never leak.
+- **Retry loop:** if `space_reserve` returns rc=1 (no fit right now), `extract.sh` exits 75 and `unzip_worker` re-queues the job and tries again later. If the ledger is empty and the job *still* doesn't fit, the job is fatally oversized and fails.
+- **Test hook:** `SPACE_AVAIL_OVERRIDE_BYTES` replaces the real `df` lookup so tests can simulate a small filesystem without root/tmpfs.
+
+---
+
+## Per-Run Scratch Spool (`COPY_SPOOL`)
+
+`COPY_DIR` is shared across concurrent pipeline runs, so deleting files in it
+would race with other instances. Each run therefore creates a dedicated subdir
+`$COPY_DIR/$$` and exports it as `COPY_SPOOL`. All scratch copies for the run
+go into that subdir.
+
+At the top of every run, `_spool_sweep_and_claim` walks `$COPY_DIR/*`, and for
+each subdir named after a PID that is no longer alive (`kill -0` fails), it
+`rm -rf`'s that subdir. This reclaims litter left by previous runs that were
+SIGKILL'd before their cleanup could run.
+
+At the end of `workers_start`, `rm -rf "$COPY_SPOOL"` removes the whole
+container. `extract.sh` normally deletes individual scratch copies in its EXIT
+trap on clean exits; the final `rm -rf` is the safety net for SIGKILL'd jobs
+inside the current run.
+
+---
+
+## Worker Registry & Intra-Run Recovery (`lib/worker_registry.sh`)
+
+`queue_pop` atomically removes a job from the queue before work begins. If a
+worker is SIGKILL'd mid-job, the job simply vanishes — nothing re-queues it.
+
+The worker registry bridges that gap.
+
+- Each extract worker calls `worker_job_begin "$BASHPID" "$job"` right after `queue_pop` and `worker_job_end "$BASHPID"` after the job resolves (success, failure, or space-retry re-queue).
+- All mutations are guarded by `flock` on `$QUEUE_DIR/.worker_registry.lock`.
+- After a worker pass finishes, `_recover_orphans` calls `worker_registry_recover`, which outputs any jobs still in the registry (owned by workers that never got to call `worker_job_end`) and truncates the registry.
+- Orphaned jobs are re-queued and another full pass runs. The loop is capped at `MAX_RECOVERY_ATTEMPTS` (default 3); beyond that, remaining orphans are declared permanently abandoned and `workers_start` returns non-zero.
+- **Re-run recovery:** even without intra-run recovery, re-running the pipeline naturally completes any skipped job because `workers_start` re-pushes every `JOBS[]` entry and precheck skips jobs already present at the destination.
+
+---
+
+## Precheck
+
+`lib/precheck.sh` runs once per extract job and answers a single question: *is
+the archive's extracted content already present at the destination?*
+
+| Exit | Meaning                                                          |
+|-----:|------------------------------------------------------------------|
+|  `0` | Content already present → `extract.sh` logs `[skip]` and exits   |
+|  `1` | Not present → proceed with reserve + copy + extract + dispatch    |
+|  `2` | Fatal preflight failure (malformed archive, unknown adapter)      |
+
+Space accounting has moved out of precheck and into `extract.sh` (under the
+shared ledger) so concurrent workers coordinate reservations properly.
+
+Per-adapter behaviour:
+
+| Adapter  | Check                                                 | Status                                      |
+|----------|-------------------------------------------------------|---------------------------------------------|
+| `sd`     | `test -e "$SD_MOUNT_POINT/$dest/<contained>"`         | Real                                        |
+| `ftp`    | TODO: `curl --list-only` / `lftp ls` against `$dest`  | Stub (always returns "not present")         |
+| `hdl`    | TODO: `hdl_dump toc "$dest"` grep for title           | Stub (always returns "not present")         |
+| `rclone` | TODO: `rclone ls $RCLONE_REMOTE$RCLONE_DEST_BASE/...` | Stub (always returns "not present")         |
+| `rsync`  | TODO: `ssh` + stat or `rsync --dry-run`                | Stub (always returns "not present")         |
+
+Stub checks are pessimistic by design: they always proceed with work rather
+than risk a false skip.
+
+---
+
+## Configuration
+
+All configuration is exported by `lib/config.sh` before any library code runs.
+Override precedence (highest to lowest):
+
+1. Env var set before the call: `MAX_UNZIP=4 bash bin/loadout-pipeline.sh`
+2. `.env` file values
+3. Hardcoded fallbacks in `lib/config.sh`
+
+See `.env.example` for the full variable reference.
+
+---
+
+## Adapters
+
+All adapters (`ftp`, `hdl`, `sd`, `rclone`, `rsync`) are **stubs**. They log
+what they would do but do not transfer any files. Each script contains a
+`TODO` marker and implementation notes.
+
+To add a new adapter:
+1. Create `adapters/<name>.sh`
+2. Add a `<name>)` case to `lib/dispatch.sh`
+3. Add a `<name>)` case to `lib/precheck.sh` (or keep the default "not present" stub)
+4. Add the adapter key to the regex in `lib/jobs.sh`
+5. Add any required env vars to `.env.example` and `lib/config.sh`
+
+---
+
+## Testing
+
+`test/run_tests.sh` runs 21 test cases (94 assertions) covering: default run,
+single worker, more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs,
+custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (.bin + .cue),
+partial-hit precheck, mid-extract failure + cleanup, rerun after failure,
+concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup
++ rerun, worker registry unit test, rclone/rsync adapter smoke tests,
+intra-run orphan recovery via the worker registry, phantom ledger GC after
+SIGKILL, mid-string `/../` rejection in the job-line parser, and a real 196 MB
+PS2 game archive exercising spaces and parentheses in the iso path (Test 21 —
+skipped automatically when the archive is absent).

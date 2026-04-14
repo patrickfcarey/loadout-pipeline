@@ -1,0 +1,18 @@
+# Files to automatically delete from every extracted archive before the
+# content is dispatched to its destination adapter.
+#
+# One exact filename per line. Only top-level members of the extracted
+# directory are matched — subdirectory paths (containing '/') are not
+# supported and will be skipped with a warning.
+#
+# Lines starting with '#' and blank lines are ignored.
+# Trailing whitespace on each line is stripped automatically.
+#
+# The strip step runs in lib/extract.sh after 7z extracts all members and
+# before the dispatch worker copies the result to its destination. This
+# means stripped files are never sent to the adapter.
+#
+# The path to this file can be overridden with the EXTRACT_STRIP_LIST
+# environment variable.
+
+Vimm's Lair.txt

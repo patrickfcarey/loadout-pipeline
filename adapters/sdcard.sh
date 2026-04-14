@@ -1,5 +1,102 @@
 #!/usr/bin/env bash
+# =============================================================================
+# ADAPTER: SD CARD  (local directory copy)
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$ROOT_DIR/lib/logging.sh"
+# =============================================================================
+# Copies an extracted directory to a local path under SD_MOUNT_POINT.
+# SD_MOUNT_POINT can be any writable local directory: an actual SD card
+# mount, a USB drive, a NAS mountpoint, or a plain folder on disk.
+#
+# ARGUMENTS
+#   $1  src   — absolute path to the extracted directory to copy
+#   $2  dest  — destination subdirectory path under SD_MOUNT_POINT
+#               (e.g. "games/game1" → copies to $SD_MOUNT_POINT/games/game1/)
+#
+# ENVIRONMENT VARIABLES (set in .env or passed at call time)
+#   SD_MOUNT_POINT — destination root (default: /mnt/sdcard)
+#
+# COPY STRATEGY
+#   rsync is used when available: it is progress-aware, skips files that are
+#   already identical (size + modtime), and handles large transfers gracefully.
+#   cp -r is used as a fallback when rsync is not installed.
+#
+#   In both cases, the *contents* of $src are copied into $target — not $src
+#   itself as a subdirectory. This matches the precheck convention where
+#   members are expected at $SD_MOUNT_POINT/$dest/<member>, not at
+#   $SD_MOUNT_POINT/$dest/$(basename $src)/<member>.
+# =============================================================================
+
+set -euo pipefail
+
 src="$1"
 dest="$2"
-echo "[sdcard] Copying $src → $dest on SD card"
-# Replace with actual cp/mount commands
+
+# Normalise: strip trailing slash from mount point, leading slash from dest
+# so the join is always a clean single-slash separator.
+mount_point="${SD_MOUNT_POINT%/}"
+dest_clean="${dest#/}"
+target="${mount_point}/${dest_clean}"
+
+# ── Validate ─────────────────────────────────────────────────────────────────
+
+if [[ ! -d "$src" ]]; then
+    log_error "sdcard: source directory does not exist: $src"
+    exit 1
+fi
+
+if [[ -z "$mount_point" ]]; then
+    log_error "sdcard: SD_MOUNT_POINT is not set"
+    exit 1
+fi
+
+if [[ ! -d "$mount_point" ]]; then
+    log_error "sdcard: SD_MOUNT_POINT does not exist: $mount_point"
+    exit 1
+fi
+
+if [[ ! -w "$mount_point" ]]; then
+    log_error "sdcard: SD_MOUNT_POINT is not writable: $mount_point"
+    exit 1
+fi
+
+# ── Containment check ─────────────────────────────────────────────────────────
+# Resolve both paths to canonical absolute form (without requiring the target to
+# exist yet) and assert that target stays inside mount_point. This defends
+# against destination fields containing ".." path segments that would escape the
+# mount-point sandbox (e.g. dest="../../etc/cron.d").
+#
+# realpath -m is POSIX-extended GNU coreutils — available on Linux; macOS users
+# can install coreutils via Homebrew for the same flag.
+if ! command -v realpath >/dev/null 2>&1; then
+    log_warn "sdcard: realpath not found — skipping containment check"
+else
+    target_canonical="$(realpath -m "$target")"
+    mount_canonical="$(realpath -m "$mount_point")"
+    case "${target_canonical}/" in
+        "${mount_canonical}/"*) : ;;   # contained — all good
+        *)
+            log_error "sdcard: destination escapes SD_MOUNT_POINT"
+            log_error "sdcard:   resolved target : $target_canonical"
+            log_error "sdcard:   allowed root    : $mount_canonical"
+            exit 1
+            ;;
+    esac
+fi
+
+# ── Copy ─────────────────────────────────────────────────────────────────────
+
+mkdir -p "$target"
+
+log_trace "sdcard: copying $src → $target"
+echo "[sdcard] Copying $src → $target"
+
+if command -v rsync >/dev/null 2>&1; then
+    # Trailing slash on $src/ copies the contents of src into target rather
+    # than nesting src as a subdirectory inside target.
+    rsync -a "$src/" "$target/"
+else
+    cp -r "$src/." "$target/"
+fi
+
+log_trace "sdcard: done → $target"

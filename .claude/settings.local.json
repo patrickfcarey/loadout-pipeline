@@ -4,7 +4,13 @@
       "Bash(chmod +x /mnt/c/Github/loadout-pipeline/test/fixtures/create_fixtures.sh)",
       "Bash(chmod +x /mnt/c/Github/loadout-pipeline/bin/loadout-pipeline.sh)",
       "Bash(awk '/^```$/{found=1; next} found && /^```mermaid/{print NR\": ADJACENT FENCES \\(no blank line\\)\"; found=0; next} found && /^$/{found=0; next} found{print NR\": TEXT BETWEEN FENCES: \"$0; found=0}' /mnt/c/Github/loadout-pipeline/ai_agent_entry_point.md)",
-      "Bash(grep -Pn \"^\\\\s+\\\\r?$\" /mnt/c/Github/loadout-pipeline/ai_agent_entry_point.md)"
+      "Bash(grep -Pn \"^\\\\s+\\\\r?$\" /mnt/c/Github/loadout-pipeline/ai_agent_entry_point.md)",
+      "Bash(mkdir -p /mnt/c/Github/loadout-pipeline/examples)",
+      "Bash(mv /mnt/c/Github/loadout-pipeline/config/example.jobs /mnt/c/Github/loadout-pipeline/examples/example.jobs)",
+      "Bash(rmdir /mnt/c/Github/loadout-pipeline/config)",
+      "Bash(bash /mnt/c/Github/loadout-pipeline/test/fixtures/create_fixtures.sh)",
+      "Bash(7z l:*)",
+      "Bash(awk '/^Path = / { sub\\(/^Path = /, \"\"\\); print }')"
     ]
   }
 }

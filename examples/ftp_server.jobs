@@ -1,0 +1,12 @@
+# FTP server profile — push game archives to a remote FTP server.
+#
+# Set FTP credentials in .env (do not pass on the command line):
+#
+#   bash bin/loadout-pipeline.sh examples/ftp_server.jobs
+#
+# The destination field is the remote path on the FTP server.
+# format: ~iso_path|adapter|destination~
+
+~/isos/ps1/crash_bandicoot.7z|ftp|/games/ps1/crash_bandicoot~
+~/isos/ps1/spyro.7z|ftp|/games/ps1/spyro~
+~/isos/ps2/shadow_of_the_colossus.7z|ftp|/games/ps2/shadow_of_the_colossus~

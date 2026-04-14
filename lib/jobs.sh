@@ -1,18 +1,124 @@
 #!/usr/bin/env bash
+# sourced by bin/loadout-pipeline.sh — do not execute directly
+
+# job_format.sh provides the canonical parse_job_line function shared by every
+# pipeline stage. Source it once here so callers of load_jobs also get the
+# parser without a separate source call.
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$ROOT_DIR/lib/job_format.sh"
 
 JOBS=()
 
-init_environment() {
-    # mkdir -p is idempotent: safe to call on every run, never deletes existing content.
-    # Queue cleanup is handled separately by queue_init at pipeline start.
-    mkdir -p "/tmp/iso_pipeline"
-    mkdir -p "$QUEUE_DIR"
-}
-
+# ─── load_jobs ────────────────────────────────────────────────────────────────
+# Reads a jobs file line by line, validates every non-blank, non-comment line
+# against the expected job format, checks for path-traversal sequences in the
+# iso path and destination fields, and appends accepted lines to the global
+# JOBS array. Any validation failure immediately returns non-zero so the
+# pipeline aborts rather than processing a potentially malicious job.
+#
+# Parameters
+#   $1  file — path to the jobs file to load
+#              (e.g. "test/example.jobs" or an absolute path)
+#
+# Returns
+#   0 — all lines parsed and validated; JOBS is populated (may be empty with a
+#       warning if the file contained only blanks/comments)
+#   1 — file not found, or any line failed format or path-traversal validation
+#
+# Modifies
+#   JOBS (global array) — each valid job line is appended with JOBS+=("$line")
+#
+# Locals
+#   file              — $1 captured as a named local
+#   line              — current line being processed from the file
+#   lineno            — 1-based line counter used in error messages
+#   _job_regex        — ERE pattern stored in a variable (required by bash when
+#                       the pattern contains spaces) that validates the full
+#                       job-line format including the allowed character sets for
+#                       iso_path and destination
+#   parsed_job_fields — output of parse_job_line: three newline-separated fields
+#                       used only to split the line for traversal checking
+#   _check_iso        — iso_path field extracted from parsed_job_fields; tested
+#                       for '..' path segments
+#   _check_adapter    — adapter field extracted from parsed_job_fields (unused
+#                       beyond parsing; adapter validity is enforced by the regex)
+#   _check_dest       — destination field extracted from parsed_job_fields; tested
+#                       for '..' path segments
+# ──────────────────────────────────────────────────────────────────────────────
 load_jobs() {
+    log_enter
     local file="$1"
+
+    if [[ ! -f "$file" ]]; then
+        log_error "job file not found: $file"
+        return 1
+    fi
+
+    local line lineno=0
     while IFS= read -r line; do
+        (( lineno++ )) || true
         [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        # Format: ~iso_path|adapter|destination~
+        # Validation rules:
+        #   iso_path    — absolute path to a .7z archive on the local filesystem.
+        #                 Allowed: letters, digits, _ . / - and ALSO spaces and
+        #                 parentheses, because standard game ISO naming conventions
+        #                 (e.g. "Ultimate Board Game Collection (USA).7z") commonly
+        #                 include them. Every pipeline code path double-quotes
+        #                 $archive, so spaces and parentheses are safe in practice.
+        #   adapter     — one of: ftp  hdl  sd  rclone  rsync
+        #   destination — adapter-specific target path. More restrictive than
+        #                 iso_path: spaces and parentheses are NOT allowed here
+        #                 because adapter destinations may be passed to external
+        #                 tools (rsync, rclone, lftp) whose quoting behaviour varies
+        #                 and because remote paths rarely need those characters.
+        #                 Allowed: letters, digits, _ . / -
+        #
+        # Always rejected in both fields: shell injection characters (; & $ ` " '
+        # \ tab |) and the path-traversal sequence (..). The ..  check below
+        # provides depth-of-defence even though the first regex would reject |.
+        #
+        # Store the pattern in a variable. bash recommends this when the ERE
+        # contains spaces so the pattern is not subject to word-splitting.
+        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|sd|rclone|rsync)\|[A-Za-z0-9_./-]+~$'
+        if [[ ! "$line" =~ $_job_regex ]]; then
+            log_error "invalid job at line $lineno: '$line'"
+            log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|sd|rclone|rsync)|destination~"
+            log_error "iso_path chars : letters, digits, _ . / - space ( )"
+            log_error "destination chars: letters, digits, _ . / -"
+            return 1
+        fi
+
+        # Reject path-traversal attempts in either the iso path or the destination
+        # field. A crafted destination like "../../../etc/cron.d" would otherwise
+        # escape adapter sandbox roots (e.g. SD_MOUNT_POINT) when joined with them.
+        # parse_job_line is available because job_format.sh is sourced at the top
+        # of this file. Using it here consolidates parsing in one place.
+        #
+        # The regex matches any '..' path segment — anchored to start-of-string
+        # or a '/' on the left and end-of-string or '/' on the right. This
+        # catches the leading case ('..', '../foo'), trailing case ('foo/..'),
+        # and the mid-string case ('foo/../bar'). The right anchor must be
+        # '(/|$)' (slash OR end-of-string), NOT '(/$|$)' (slash+end OR end),
+        # because the latter fails on mid-string segments.
+        local parsed_job_fields
+        if ! parsed_job_fields="$(parse_job_line "$line")"; then
+            log_error "malformed job at line $lineno (parser rejected): '$line'"
+            return 1
+        fi
+        local _check_iso _check_adapter _check_dest
+        { read -r _check_iso; read -r _check_adapter; read -r _check_dest; } <<< "$parsed_job_fields"
+        if [[ "$_check_iso"  =~ (^|/)\.\.(/|$) || \
+              "$_check_dest" =~ (^|/)\.\.(/|$) ]]; then
+            log_error "path traversal attempt (..) at line $lineno: '$line'"
+            return 1
+        fi
+
         JOBS+=("$line")
     done < "$file"
+
+    if [[ ${#JOBS[@]} -eq 0 ]]; then
+        log_warn "no jobs found in $file"
+    fi
 }
