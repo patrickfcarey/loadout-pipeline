@@ -13,9 +13,18 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
     fi
     unset _dotenv_mode
 
-    while IFS= read -r _dotenv_line; do
+    # `|| [[ -n "$_dotenv_line" ]]` processes the final line even when the
+    # file has no trailing newline. Without it, an editor that strips the
+    # trailing LF would silently drop the last KEY=value pair from .env —
+    # a classic bash pitfall that is particularly insidious here because
+    # pipeline configuration would mysteriously revert to defaults with no
+    # warning.
+    while IFS= read -r _dotenv_line || [[ -n "$_dotenv_line" ]]; do
         # Skip blank lines and full-line comments.
         [[ "$_dotenv_line" =~ ^[[:space:]]*(#|$) ]] && continue
+        # Trim trailing CR so .env files saved with CRLF line endings on
+        # Windows/WSL are handled identically to LF-only files.
+        _dotenv_line="${_dotenv_line%$'\r'}"
         # Split on the first '=' only so that passwords containing '=' are
         # preserved intact in the value.
         _dotenv_key="${_dotenv_line%%=*}"
@@ -98,3 +107,46 @@ export EXTRACT_STRIP_LIST="${EXTRACT_STRIP_LIST:-$ROOT_DIR/strip.list}"
 # SPACE_RETRY_BACKOFF_MAX_SEC     — ceiling for the exponential backoff
 export SPACE_RETRY_BACKOFF_INITIAL_SEC="${SPACE_RETRY_BACKOFF_INITIAL_SEC:-5}"
 export SPACE_RETRY_BACKOFF_MAX_SEC="${SPACE_RETRY_BACKOFF_MAX_SEC:-60}"
+
+# ─── Numeric-config validation ────────────────────────────────────────────────
+# Catch misconfigured env vars at load time, loudly, with the offending name
+# in the message — rather than letting a non-numeric value silently coerce to
+# zero inside an arithmetic expansion many functions away. MAX_UNZIP=0 for
+# example spawns zero extract workers and hangs the pipeline forever waiting
+# for a sentinel file that will never be written.
+#
+# Integer (>= 1) vars: worker counts and retry caps.
+for _cfg_var in MAX_UNZIP MAX_DISPATCH MAX_RECOVERY_ATTEMPTS \
+                DISPATCH_POLL_INITIAL_MS DISPATCH_POLL_MAX_MS; do
+    if [[ ! "${!_cfg_var}" =~ ^[0-9]+$ ]] || (( ${!_cfg_var} < 1 )); then
+        echo "[config] ERROR: $_cfg_var must be a positive integer, got '${!_cfg_var}'" >&2
+        exit 2
+    fi
+done
+unset _cfg_var
+
+# Integer (>= 0) vars: percentages and seconds (0 disables overhead padding).
+for _cfg_var in SPACE_OVERHEAD_PCT; do
+    if [[ ! "${!_cfg_var}" =~ ^[0-9]+$ ]]; then
+        echo "[config] ERROR: $_cfg_var must be a non-negative integer, got '${!_cfg_var}'" >&2
+        exit 2
+    fi
+done
+unset _cfg_var
+
+# Decimal-allowed vars: retry backoff seconds (bash `sleep` accepts decimals).
+# Allow forms like "5", "5.0", "0.25" but reject "5s", negatives, empty.
+for _cfg_var in SPACE_RETRY_BACKOFF_INITIAL_SEC SPACE_RETRY_BACKOFF_MAX_SEC; do
+    if [[ ! "${!_cfg_var}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "[config] ERROR: $_cfg_var must be a non-negative number, got '${!_cfg_var}'" >&2
+        exit 2
+    fi
+done
+unset _cfg_var
+
+# DISPATCH_POLL ordering: initial must not exceed max or the backoff grows
+# backwards on the first "empty queue" hit and the worker never polls again.
+if (( DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS )); then
+    echo "[config] ERROR: DISPATCH_POLL_INITIAL_MS ($DISPATCH_POLL_INITIAL_MS) must not exceed DISPATCH_POLL_MAX_MS ($DISPATCH_POLL_MAX_MS)" >&2
+    exit 2
+fi

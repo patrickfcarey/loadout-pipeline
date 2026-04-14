@@ -11,7 +11,11 @@
       "Bash(bash /mnt/c/Github/loadout-pipeline/test/fixtures/create_fixtures.sh)",
       "Bash(7z l:*)",
       "Bash(awk '/^Path = / { sub\\(/^Path = /, \"\"\\); print }')",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(wc:*)",
+      "Bash(command -v timeout)",
+      "Bash(command -v 7z)",
+      "Bash(command -v bash --version)"
     ]
   }
 }

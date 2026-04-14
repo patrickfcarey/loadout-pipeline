@@ -53,6 +53,17 @@ log_trace() {
     echo "[DEBUG] $*" >&2
 }
 
+# ─── log_info ─────────────────────────────────────────────────────────────────
+# Prints an operator-facing status message to stdout. Always visible regardless
+# of DEBUG_IND. Used by bin/loadout-pipeline.sh for the top-level "starting",
+# "loading jobs", "all done" milestones so an operator running interactively
+# sees progress without having to enable debug tracing.
+#
+# Parameters  : $@  message — free-form status text (shown after a [pipeline] tag)
+# Returns     : 0 always
+# Modifies    : nothing — outputs "[pipeline] <message>" to stdout
+# Locals      : none
+# ──────────────────────────────────────────────────────────────────────────────
 # ─── log_warn ─────────────────────────────────────────────────────────────────
 # Prints a warning message to stderr. Always visible regardless of DEBUG_IND.
 #
@@ -69,8 +80,9 @@ log_trace() {
 # Modifies    : nothing — outputs "[ERROR] <message>" to stderr
 # Locals      : none
 # ──────────────────────────────────────────────────────────────────────────────
-log_warn()  { echo "[WARN]  $*" >&2; }
-log_error() { echo "[ERROR] $*" >&2; }
+log_info()  { printf '[pipeline] %s\n' "$*"; }
+log_warn()  { printf '[WARN]  %s\n' "$*" >&2; }
+log_error() { printf '[ERROR] %s\n' "$*" >&2; }
 
 # When debug is enabled, automatically log every function exit via RETURN trap.
 # set -o functrace makes the trap inherited by all sourced functions.

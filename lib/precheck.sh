@@ -32,12 +32,7 @@
 # Both stubs are pessimistic by design: they always proceed with work rather
 # than risk a false skip.
 # =============================================================================
-# -e is intentionally omitted here. The `7z l -slt | awk | tail` pipeline in
-# the "contained" assignment can produce an empty string for a valid (empty)
-# archive, and we handle that explicitly with the `[[ -z "$contained" ]]` guard
-# below. Adding -e would turn a legitimately-empty-archive into an abrupt exit
-# rather than a controlled exit-2.
-set -uo pipefail
+set -euo pipefail
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$ROOT_DIR/lib/logging.sh"
 
@@ -89,14 +84,70 @@ _precheck_is_stripped() {
 
 # List the archive's contents. `7z l -slt` emits multiple `Path = ...` lines;
 # the first is the archive itself, so we drop it with `tail -n +2`.
-contained=$(7z l -slt "$archive" 2>/dev/null \
-    | awk '/^Path = / { sub(/^Path = /, ""); print }' \
+#
+# LC_ALL=C pins awk's regex engine to byte-wise matching. Without it, a UTF-8
+# locale combined with a 7z build that localises field names ("Fichier = ")
+# would silently miss every Path line and yield an empty $contained. Pinning
+# to C also makes the behaviour reproducible across operator environments.
+#
+# `set +e` is narrowed to JUST the command substitution so a
+# legitimately-empty-archive (an edge case we handle via exit 2 below) is not
+# turned into a script-wide abort under -e. Everything else in this script
+# remains under -e so real bugs fail loudly.
+set +e
+contained=$(LC_ALL=C 7z l -slt "$archive" 2>/dev/null \
+    | LC_ALL=C awk '/^Path = / { sub(/^Path = /, ""); print }' \
     | tail -n +2)
+set -e
 
 if [[ -z "$contained" ]]; then
     log_warn "precheck: archive $archive is empty or unreadable"
     exit 2
 fi
+
+# ─── _precheck_member_is_safe ─────────────────────────────────────────────────
+# Returns 0 if the given archive-member filename is a safe relative path that
+# stays inside the target directory when appended. Rejects:
+#   * absolute paths (leading /)
+#   * any segment that is literally ".."
+#   * leading "./" or embedded "/./" (could be combined with ".." in a way that
+#     a naive string match misses)
+#   * empty paths
+#
+# Why this matters: a malicious archive can encode member names like
+# "../../etc/passwd" or "/etc/passwd". Before we probe for "already exists"
+# with [[ -e "$local_root/$f" ]], we must be certain $f cannot escape
+# $local_root — otherwise we'd leak information about the real filesystem (does
+# /etc/passwd exist? does some victim file exist?) and on a repeat run a
+# carefully-crafted archive could influence extract's behaviour via a precheck
+# false-positive that causes extraction to be skipped.
+#
+# Note: this is a defense-in-depth check for the precheck stage. Actual write-
+# side containment is enforced by 7z's own member-path handling in lib/extract.sh.
+# Here we only care that the "already present" probe cannot escape.
+#
+# Parameters
+#   $1  member — archive-member filename as emitted by `7z l -slt` Path line
+#
+# Returns
+#   0 — safe
+#   1 — unsafe (caller must refuse to use $member as a relative path)
+#
+# Locals
+#   member — $1 captured as a named local
+# ──────────────────────────────────────────────────────────────────────────────
+_precheck_member_is_safe() {
+    local member="$1"
+    [[ -n "$member" ]]                    || return 1
+    [[ "$member" != /* ]]                 || return 1
+    [[ "$member" != *$'\n'* ]]            || return 1
+    # Reject any ".." component regardless of position in the path.
+    # The anchored regex matches at start-of-string, after a slash, before
+    # a slash, or at end-of-string — every legitimate boundary for a path
+    # component.
+    [[ ! "$member" =~ (^|/)\.\.(/|$) ]]   || return 1
+    return 0
+}
 
 # ── 1. Already at destination? ────────────────────────────────────────────
 already_present=0
@@ -125,6 +176,15 @@ case "$adapter" in
         all_there=1
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
+            # Refuse to probe for archive members whose filenames contain
+            # ".." segments or absolute paths. A malicious archive could
+            # otherwise trick precheck into testing [[ -e "$local_root/../../etc/passwd" ]]
+            # which might falsely report "already present" if the file exists,
+            # causing the legitimate content to never be extracted.
+            if ! _precheck_member_is_safe "$f"; then
+                log_warn "precheck: archive $archive contains unsafe member path — refusing to probe: $f"
+                exit 2
+            fi
             # Stripped files are never dispatched to the destination, so
             # their absence must not cause a false "not present" result.
             _precheck_is_stripped "$f" && continue

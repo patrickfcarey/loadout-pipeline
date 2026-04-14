@@ -146,8 +146,21 @@ space_init() {
 _space_dev() {
     # Stat the nearest existing ancestor — the target dir may not exist yet
     # the first time a worker reserves against it.
-    local p="$1"
-    while [[ -n "$p" && ! -e "$p" ]]; do p="${p%/*}"; done
+    #
+    # The trim loop below must handle relative paths with no '/': for "foo",
+    # ${p%/*} returns "foo" unchanged (pattern does not match), which would
+    # spin forever. Detect the unchanged case and fall back to the CWD.
+    local p="$1" prev
+    while [[ -n "$p" && ! -e "$p" ]]; do
+        prev="$p"
+        p="${p%/*}"
+        if [[ "$p" == "$prev" ]]; then
+            # No slash to strip — path was relative and has no ancestor left.
+            # Stat the current working directory instead of looping forever.
+            p="."
+            break
+        fi
+    done
     [[ -z "$p" ]] && p="/"
     stat -c %d "$p" 2>/dev/null || echo 0
 }
@@ -174,8 +187,18 @@ _space_avail_bytes() {
         printf '%s' "$SPACE_AVAIL_OVERRIDE_BYTES"
         return 0
     fi
-    local p="$1"
-    while [[ -n "$p" && ! -e "$p" ]]; do p="${p%/*}"; done
+    # Walks up to an existing ancestor the same way _space_dev does.
+    # Same unchanged-path guard: a relative path with no slash (e.g. "foo")
+    # would otherwise spin in ${p%/*}. Fall back to "." in that case.
+    local p="$1" prev
+    while [[ -n "$p" && ! -e "$p" ]]; do
+        prev="$p"
+        p="${p%/*}"
+        if [[ "$p" == "$prev" ]]; then
+            p="."
+            break
+        fi
+    done
     [[ -z "$p" ]] && p="/"
     df --output=avail -B1 "$p" 2>/dev/null | tail -n1 | tr -d ' '
 }
@@ -271,9 +294,17 @@ _space_ledger_gc_phantoms() {
     ledger="$(_space_ledger_path)"
     [[ -s "$ledger" ]] || return 0
     tmp="${ledger}.gc.$BASHPID"
-    awk '{
-        if (system("kill -0 " $6 " 2>/dev/null") == 0) print
-    }' "$ledger" > "$tmp" && mv "$tmp" "$ledger"
+    # Defence-in-depth: validate $6 is a positive integer before passing it
+    # to system(). The ledger is write-protected by QUEUE_DIR mode 0700 and
+    # $6 is always the writer's $BASHPID, but an unchecked interpolation into
+    # a shell command is exactly the kind of thing NASA-style review flags.
+    # If validation fails the phantom entry is dropped (treated as corrupt).
+    if awk '$6 ~ /^[0-9]+$/ && system("kill -0 " $6 " 2>/dev/null") == 0' \
+            "$ledger" > "$tmp"; then
+        mv "$tmp" "$ledger"
+    else
+        rm -f "$tmp"
+    fi
 }
 
 # ─── space_reserve ────────────────────────────────────────────────────────────
@@ -402,7 +433,11 @@ space_release() {
     (
         flock -x 9
         tmp="${ledger}.tmp.$BASHPID"
-        awk -v id="$id" '$1 != id' "$ledger" > "$tmp" && mv "$tmp" "$ledger"
+        if awk -v id="$id" '$1 != id' "$ledger" > "$tmp"; then
+            mv "$tmp" "$ledger"
+        else
+            rm -f "$tmp"
+        fi
     ) 9>"$lock"
 }
 

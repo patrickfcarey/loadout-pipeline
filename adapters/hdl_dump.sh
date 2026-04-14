@@ -40,9 +40,19 @@
 # =============================================================================
 
 set -euo pipefail
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$ROOT_DIR/lib/logging.sh"
 
 src="$1"
 dest="$2"
+
+# Stub guard — see adapters/ftp.sh for rationale. Set ALLOW_STUB_ADAPTERS=1
+# to allow a no-op stub completion (dev/test without a real hdl_dump target).
+if [[ "${ALLOW_STUB_ADAPTERS:-0}" != 1 ]]; then
+    log_error "hdl_dump: adapter is a stub and has not been implemented."
+    log_error "hdl_dump: set ALLOW_STUB_ADAPTERS=1 to allow the stub to report success anyway."
+    exit 1
+fi
 
 # TODO: replace this echo with a real hdl_dump command using $HDL_DUMP_BIN
 echo "[hdl_dump] STUB — would run: $HDL_DUMP_BIN inject_dvd $dest <title> $src/<game>.iso"

@@ -18,58 +18,75 @@ log_trace "→ dispatch.sh  adapter=$adapter  src=$src  dest=$dest"
 # This limits exposure if a future adapter accidentally leaks or logs its
 # environment (e.g. via a debug flag or error handler).
 
-# Variable groups belonging to each adapter — used in the case arms below.
+# Variable groups belonging to each adapter. These arrays are the SINGLE
+# source of truth: the case arms below build their `env -u` strip list by
+# taking every group except the one that matches the active adapter.
+# To add a new credential (e.g. FTP_TLS) simply append it to the relevant
+# array — every other adapter automatically strips it.
 readonly _FTP_ENV_VARS=(FTP_HOST FTP_USER FTP_PASS FTP_PORT)
 readonly _HDL_ENV_VARS=(HDL_DUMP_BIN)
 readonly _SD_ENV_VARS=(SD_MOUNT_POINT)
 readonly _RCLONE_ENV_VARS=(RCLONE_REMOTE RCLONE_DEST_BASE RCLONE_FLAGS)
 readonly _RSYNC_ENV_VARS=(RSYNC_DEST_BASE RSYNC_HOST RSYNC_USER RSYNC_SSH_PORT RSYNC_FLAGS)
 
+# ─── _build_strip_args ────────────────────────────────────────────────────────
+# Build an `env -u <VAR>` argument list for every adapter group EXCEPT the
+# one whose array name is passed in $1. Result is stored in the global
+# `_strip_args` array so the caller can prepend it to an `env ... bash ...`
+# invocation. Using a global avoids the subshell round-trip that would be
+# required by stdout-based return (which would drop all shell quoting).
+#
+# Parameters
+#   $1  keep — array name whose members should NOT be stripped
+#              (e.g. "_FTP_ENV_VARS" when dispatching to the ftp adapter)
+#
+# Returns     : 0 always
+# Modifies    : global `_strip_args` array is reset and populated
+#
+# Locals
+#   keep         — $1
+#   group_names  — list of every known adapter-env array name
+#   group_name   — loop var over group_names
+#   group_ref    — `declare -n` namerefs to the group array being iterated
+#   var          — loop var over the vars inside group_ref
+# ──────────────────────────────────────────────────────────────────────────────
+_build_strip_args() {
+    local keep="$1"
+    local group_name var
+    local -a group_names=(_FTP_ENV_VARS _HDL_ENV_VARS _SD_ENV_VARS _RCLONE_ENV_VARS _RSYNC_ENV_VARS)
+    _strip_args=()
+    for group_name in "${group_names[@]}"; do
+        [[ "$group_name" == "$keep" ]] && continue
+        local -n group_ref="$group_name"
+        for var in "${group_ref[@]}"; do
+            _strip_args+=(-u "$var")
+        done
+        unset -n group_ref
+    done
+}
+
+declare -a _strip_args=()
+
 case "$adapter" in
     ftp)
-        # Give FTP vars; strip HDL, SD, rclone, rsync vars.
-        env \
-            -u HDL_DUMP_BIN \
-            -u SD_MOUNT_POINT \
-            -u RCLONE_REMOTE -u RCLONE_DEST_BASE -u RCLONE_FLAGS \
-            -u RSYNC_DEST_BASE -u RSYNC_HOST -u RSYNC_USER -u RSYNC_SSH_PORT -u RSYNC_FLAGS \
-            bash "$ROOT_DIR/adapters/ftp.sh" "$src" "$dest"
+        _build_strip_args _FTP_ENV_VARS
+        env "${_strip_args[@]}" bash "$ROOT_DIR/adapters/ftp.sh" "$src" "$dest"
         ;;
     hdl)
-        # Give HDL vars; strip FTP, SD, rclone, rsync vars.
-        env \
-            -u FTP_HOST -u FTP_USER -u FTP_PASS -u FTP_PORT \
-            -u SD_MOUNT_POINT \
-            -u RCLONE_REMOTE -u RCLONE_DEST_BASE -u RCLONE_FLAGS \
-            -u RSYNC_DEST_BASE -u RSYNC_HOST -u RSYNC_USER -u RSYNC_SSH_PORT -u RSYNC_FLAGS \
-            bash "$ROOT_DIR/adapters/hdl_dump.sh" "$src" "$dest"
+        _build_strip_args _HDL_ENV_VARS
+        env "${_strip_args[@]}" bash "$ROOT_DIR/adapters/hdl_dump.sh" "$src" "$dest"
         ;;
     sd)
-        # Give SD vars; strip FTP, HDL, rclone, rsync vars.
-        env \
-            -u FTP_HOST -u FTP_USER -u FTP_PASS -u FTP_PORT \
-            -u HDL_DUMP_BIN \
-            -u RCLONE_REMOTE -u RCLONE_DEST_BASE -u RCLONE_FLAGS \
-            -u RSYNC_DEST_BASE -u RSYNC_HOST -u RSYNC_USER -u RSYNC_SSH_PORT -u RSYNC_FLAGS \
-            bash "$ROOT_DIR/adapters/sdcard.sh" "$src" "$dest"
+        _build_strip_args _SD_ENV_VARS
+        env "${_strip_args[@]}" bash "$ROOT_DIR/adapters/sdcard.sh" "$src" "$dest"
         ;;
     rclone)
-        # Give rclone vars; strip FTP, HDL, SD, rsync vars.
-        env \
-            -u FTP_HOST -u FTP_USER -u FTP_PASS -u FTP_PORT \
-            -u HDL_DUMP_BIN \
-            -u SD_MOUNT_POINT \
-            -u RSYNC_DEST_BASE -u RSYNC_HOST -u RSYNC_USER -u RSYNC_SSH_PORT -u RSYNC_FLAGS \
-            bash "$ROOT_DIR/adapters/rclone.sh" "$src" "$dest"
+        _build_strip_args _RCLONE_ENV_VARS
+        env "${_strip_args[@]}" bash "$ROOT_DIR/adapters/rclone.sh" "$src" "$dest"
         ;;
     rsync)
-        # Give rsync vars; strip FTP, HDL, SD, rclone vars.
-        env \
-            -u FTP_HOST -u FTP_USER -u FTP_PASS -u FTP_PORT \
-            -u HDL_DUMP_BIN \
-            -u SD_MOUNT_POINT \
-            -u RCLONE_REMOTE -u RCLONE_DEST_BASE -u RCLONE_FLAGS \
-            bash "$ROOT_DIR/adapters/rsync.sh" "$src" "$dest"
+        _build_strip_args _RSYNC_ENV_VARS
+        env "${_strip_args[@]}" bash "$ROOT_DIR/adapters/rsync.sh" "$src" "$dest"
         ;;
     *)
         log_error "unknown adapter: $adapter"

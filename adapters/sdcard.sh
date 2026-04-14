@@ -67,22 +67,26 @@ fi
 # mount-point sandbox (e.g. dest="../../etc/cron.d").
 #
 # realpath -m is POSIX-extended GNU coreutils — available on Linux; macOS users
-# can install coreutils via Homebrew for the same flag.
+# can install coreutils via Homebrew for the same flag. It is MANDATORY: a
+# missing realpath would skip the containment check entirely, allowing a
+# malicious jobs.txt with "../../etc/passwd" destinations to overwrite arbitrary
+# filesystem locations. Failing hard is safer than degrading to no check.
 if ! command -v realpath >/dev/null 2>&1; then
-    log_warn "sdcard: realpath not found — skipping containment check"
-else
-    target_canonical="$(realpath -m "$target")"
-    mount_canonical="$(realpath -m "$mount_point")"
-    case "${target_canonical}/" in
-        "${mount_canonical}/"*) : ;;   # contained — all good
-        *)
-            log_error "sdcard: destination escapes SD_MOUNT_POINT"
-            log_error "sdcard:   resolved target : $target_canonical"
-            log_error "sdcard:   allowed root    : $mount_canonical"
-            exit 1
-            ;;
-    esac
+    log_error "sdcard: realpath not found — containment check is mandatory, refusing to proceed"
+    log_error "sdcard: install GNU coreutils (apt: coreutils, brew: coreutils) to enable the adapter"
+    exit 1
 fi
+target_canonical="$(realpath -m "$target")"
+mount_canonical="$(realpath -m "$mount_point")"
+case "${target_canonical}/" in
+    "${mount_canonical}/"*) : ;;   # contained — all good
+    *)
+        log_error "sdcard: destination escapes SD_MOUNT_POINT"
+        log_error "sdcard:   resolved target : $target_canonical"
+        log_error "sdcard:   allowed root    : $mount_canonical"
+        exit 1
+        ;;
+esac
 
 # ── Copy ─────────────────────────────────────────────────────────────────────
 

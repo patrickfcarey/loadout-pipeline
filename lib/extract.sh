@@ -94,7 +94,19 @@ _on_exit() {
         # by a later failure on a different stage — but since we rm -rf only
         # on rc!=0 and extract is the creator, this is safe for the one-job
         # subprocess scope of this script.
-        [[ -n "$_out_dir"  && -d "$_out_dir"  ]] && rm -rf "$_out_dir"
+        #
+        # Hard guards against accidentally wiping EXTRACT_DIR itself: GNU rm
+        # already refuses '.'/'..', but busybox and BSD rm do not, and we run
+        # on whatever /usr/bin/rm the operator's image provides. The explicit
+        # checks below make the safety portable to every rm implementation.
+        if [[ -n "$_out_dir" && -d "$_out_dir"
+              && "$_out_dir" != "$EXTRACT_DIR"
+              && "$_out_dir" != "$EXTRACT_DIR/"
+              && "$_out_dir" != */.
+              && "$_out_dir" != */..
+              && "$_out_dir" != "/" ]]; then
+            rm -rf "$_out_dir"
+        fi
     fi
     return $rc
 }
@@ -136,18 +148,32 @@ esac
 # Must happen before copy so concurrent workers can't collectively overshoot
 # the filesystem. rc=75 signals the worker to re-queue and retry; the release
 # is handled by the EXIT trap above.
-archive_bytes=$(stat -c %s "$archive" 2>/dev/null || echo 0)
-uncompressed_bytes=$(7z l -slt "$archive" 2>/dev/null \
-    | awk '/^Size = / { s += $3 } END { print s+0 }')
+#
+# A missing or unreadable archive is fatal: failing open to 0 bytes here
+# would silently under-reserve capacity and let sibling workers overshoot
+# the filesystem before the actual cp later fails. Let stat error naturally
+# and set -e abort — the trap will release any reservation we've taken.
+archive_bytes=$(stat -c %s "$archive")
+# LC_ALL=C forces 7z and awk to emit ASCII numbers without thousands
+# separators. Without this, a locale like de_DE.UTF-8 would format Size
+# values as "1.234.567.890"; awk's += on that evaluates only the leading
+# integer, undercounting by orders of magnitude and under-reserving space.
+uncompressed_bytes=$(LC_ALL=C 7z l -slt "$archive" 2>/dev/null \
+    | LC_ALL=C awk '/^Size = / { s += $3 } END { print s+0 }')
 _spool="${COPY_SPOOL:-$COPY_DIR}"
 mkdir -p "$_spool" "$EXTRACT_DIR"
+# Flag ordering: set _reserved=1 BEFORE space_reserve so that if a signal
+# arrives between the successful reserve and the flag assignment, the EXIT
+# trap still calls space_release. If space_reserve returns non-zero we
+# clear the flag again so we don't release a reservation we never took.
+_reserved=1
 if ! space_reserve "$_reservation_id" \
         "$_spool"      "$archive_bytes" \
         "$EXTRACT_DIR" "$uncompressed_bytes"; then
+    _reserved=0
     log_trace "← extract.sh  space reservation did not fit, will retry"
     exit 75
 fi
-_reserved=1
 
 # ── 3. Copy the archive to scratch ────────────────────────────────────────
 # Append the pid AFTER the original extension so the full archive name —
@@ -159,6 +185,16 @@ cp "$archive" "$copy"
 
 # ── 4. Extract ────────────────────────────────────────────────────────────
 name="$(basename "$archive" .7z)"
+# Belt-and-braces against a malformed archive name slipping past the jobs.sh
+# validator. basename strips a trailing ".7z" suffix, so an input like
+# "/..7z" yields name="." — without this check, out_dir would resolve to
+# $EXTRACT_DIR itself and extraction would mix into every sibling worker's
+# output. jobs.sh rejects this at parse time; the assert here keeps extract
+# safe even if called through a path that bypassed jobs.sh.
+if [[ -z "$name" || "$name" == "." || "$name" == ".." || "$name" == .* ]]; then
+    log_error "extract: refusing invalid archive basename: '$name' (from $archive)"
+    exit 1
+fi
 out_dir="${EXTRACT_DIR}/$name"
 _out_dir="$out_dir"
 

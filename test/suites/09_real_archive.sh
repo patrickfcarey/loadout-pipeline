@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # test/suites/09_real_archive.sh
 #
-# Optional end-to-end test with a real game ISO archive. This test is skipped
-# automatically when the archive is absent so the suite passes in CI and on
-# machines without the file. To enable the test, place the archive at:
+# End-to-end test with a real game ISO archive. HARD-FAILS when the archive
+# is absent — the suite will NOT go green on a machine that cannot actually
+# exercise the real-archive path. To run the suite, place the archive at:
 #   test/fixtures/isos/Ultimate Board Game Collection (USA).7z
 
 # ── test 21: real game ISO — multi-file archive (bin+cue) ────────────────────
@@ -15,9 +15,11 @@
 #      all members correctly under their original names.
 #   3. The sd adapter copies all members to the ps2/ destination folder.
 #
-# The test is skipped gracefully when the archive is absent so the suite
-# still passes in CI and on machines without the file. To run the full
-# test, place the archive in test/fixtures/isos/ manually.
+# Previously this test silently called pass() when the archive was absent,
+# which kept the suite green on machines that had NEVER run the real path.
+# That was a lie: "PASS" implied the behaviour was validated when in fact
+# nothing was checked. The missing-archive branch now fails loudly so the
+# operator cannot mistake an untested environment for a working one.
 
 header "Test 21: real game ISO — Ultimate Board Game Collection (USA)"
 
@@ -28,7 +30,11 @@ REAL_SD_DIR="/tmp/iso_pipeline_test_real_isos_sd_$$"
 REAL_LOG="/tmp/iso_pipeline_test_real_isos_$$.log"
 
 if [[ -z "$REAL_ARCHIVE" ]]; then
-    pass "Test 21 skipped — real archive not present in test/fixtures/isos/ (place it there to enable)"
+    fail "Test 21: real archive missing — expected at $FIXTURES_DIR/isos/Ultimate Board Game Collection (USA).7z"
+    echo "      Place the archive in test/fixtures/isos/ to run this test."
+    echo "      (The real-archive path is intentionally required — a silent skip"
+    echo "       would mask regressions in the space/parentheses iso_path handling,"
+    echo "       real multi-member extraction, and the strip.list dispatch guard.)"
 else
     echo "  archive: $REAL_ARCHIVE ($(du -sh "$REAL_ARCHIVE" 2>/dev/null | cut -f1))"
     mkdir -p "$REAL_EXTRACT" "$REAL_SD_DIR"

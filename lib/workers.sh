@@ -58,7 +58,7 @@ _spool_sweep_and_claim() {
     while IFS= read -r subdir; do
         subpid="$(basename "$subdir")"
         if [[ "$subpid" =~ ^[0-9]+$ ]] && ! kill -0 "$subpid" 2>/dev/null; then
-            rm -rf "$subdir"
+            _spool_guarded_rm_rf "$subdir"
         fi
     done < <(find "$base" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     export COPY_SPOOL="$base/$$"
@@ -67,8 +67,38 @@ _spool_sweep_and_claim() {
     # crashed run happened to use the same PID (PID-space wrap-around), its
     # spool dir would survive the sweep and we'd inherit stale scratch files.
     # A cheap unconditional rm -rf guarantees a clean spool before first use.
-    rm -rf "$COPY_SPOOL"
+    _spool_guarded_rm_rf "$COPY_SPOOL"
     mkdir -p "$COPY_SPOOL"
+}
+
+# ─── _spool_guarded_rm_rf ─────────────────────────────────────────────────────
+# Wraps rm -rf around the very narrow set of paths that are legitimate spool
+# subdirectories. Refuses to act on anything that does not live directly under
+# $COPY_DIR and does not have a purely-numeric basename (which the spool claim
+# logic above guarantees, because the basename is always $$). This keeps a
+# corrupted COPY_SPOOL variable or an inherited-env surprise from turning into
+# a destructive rm on the wrong path.
+#
+# Parameters
+#   $1  path — the candidate directory to remove
+#
+# Returns     : 0 on success or skip; non-zero only if the rm itself fails
+# Modifies    : filesystem — deletes $path if it passes the guards
+# ──────────────────────────────────────────────────────────────────────────────
+_spool_guarded_rm_rf() {
+    local path="$1" name parent
+    [[ -n "$path" ]] || return 0
+    # Refuse unsafe paths outright: root, relative, no trailing component.
+    case "$path" in
+        ""|"/"|".") log_error "spool guard: refusing to rm '$path'"; return 1 ;;
+    esac
+    parent="$(dirname  "$path")"
+    name="$(basename "$path")"
+    if [[ "$parent" != "$COPY_DIR" || ! "$name" =~ ^[0-9]+$ ]]; then
+        log_error "spool guard: refusing rm of '$path' (parent='$parent' name='$name' not under COPY_DIR/<pid>)"
+        return 1
+    fi
+    rm -rf -- "$path"
 }
 
 # =============================================================================
@@ -272,6 +302,14 @@ workers_start() {
     _spool_sweep_and_claim
     _pipeline_run_init
 
+    # Install an EXIT trap so COPY_SPOOL is cleaned up on SIGINT/SIGTERM,
+    # set -e aborts, and any other non-normal exit path — not just at the
+    # end of a clean completion. Without this, a Ctrl-C between passes
+    # would leak the per-run spool until the next pipeline run's sweep
+    # caught it (and even then only if the reused PID weren't alive).
+    # shellcheck disable=SC2064  # intentional early expansion of $COPY_SPOOL
+    trap "_spool_guarded_rm_rf '$COPY_SPOOL'" EXIT
+
     local job
     for job in "${JOBS[@]}"; do
         queue_push "$EXTRACT_QUEUE_DIR" "$job"
@@ -297,11 +335,6 @@ workers_start() {
             break
         fi
     done
-
-    # Remove our per-run spool. The EXIT trap in extract.sh already deleted
-    # individual scratch copies on clean exits; this removes the container and
-    # any residual files left by SIGKILL'd extracts.
-    rm -rf "$COPY_SPOOL"
 
     [[ $rc -eq 0 ]] || log_error "one or more workers reported failures"
     return $rc
@@ -448,9 +481,25 @@ unzip_worker() {
     # SPACE_RETRY_BACKOFF_MAX_SEC. Keyed on the full job string so multiple
     # different jobs in the queue each maintain independent backoff state.
     declare -A _space_retry_backoff_seconds=()
-    local job fail_count=0 job_rc
+    local job fail_count=0 job_rc pop_rc
 
-    while job=$(queue_pop "$EXTRACT_QUEUE_DIR"); do
+    # Explicit 3-way branch on queue_pop's exit code: 0 = got a job,
+    # 1 = queue empty (normal exit), 2 = read error (treat as a failure).
+    # Using `while job=$(queue_pop ...)` would collapse rc=1 and rc=2 into
+    # the same "queue empty" branch, causing workers to silently exit with
+    # unprocessed jobs still in the queue.
+    while true; do
+        pop_rc=0
+        job=$(queue_pop "$EXTRACT_QUEUE_DIR") || pop_rc=$?
+        case "$pop_rc" in
+            0) : ;;                       # got a job — process it below
+            1) break ;;                   # queue empty — normal exit
+            *)                            # read error — fail loudly
+                log_error "unzip_worker: queue_pop returned error (rc=$pop_rc); aborting this worker"
+                (( fail_count++ )) || true
+                break
+                ;;
+        esac
         worker_job_begin "$BASHPID" "$job"
         job_rc=0
         _unzip_handle_job "$job" _space_retry_backoff_seconds || job_rc=$?
@@ -547,19 +596,29 @@ _dispatch_handle_job() {
 dispatch_worker() {
     log_enter
     # Integer-millisecond backoff: avoids a fork/exec of awk on every poll cycle.
-    local job fail_count=0
+    local job fail_count=0 pop_rc
     local poll_delay_ms="${DISPATCH_POLL_INITIAL_MS:-50}"
     local poll_max_ms="${DISPATCH_POLL_MAX_MS:-500}"
 
     while true; do
-        if job=$(queue_pop "$DISPATCH_QUEUE_DIR"); then
-            poll_delay_ms="${DISPATCH_POLL_INITIAL_MS:-50}"   # reset on successful pop
-            if ! _dispatch_handle_job "$job"; then
-                log_error "dispatch failed: $job"
+        pop_rc=0
+        job=$(queue_pop "$DISPATCH_QUEUE_DIR") || pop_rc=$?
+        case "$pop_rc" in
+            0)
+                poll_delay_ms="${DISPATCH_POLL_INITIAL_MS:-50}"   # reset on successful pop
+                if ! _dispatch_handle_job "$job"; then
+                    log_error "dispatch failed: $job"
+                    (( fail_count++ )) || true
+                fi
+                continue
+                ;;
+            1) : ;;                       # queue empty — fall through to sentinel check
+            *)
+                log_error "dispatch_worker: queue_pop returned error (rc=$pop_rc); aborting this worker"
                 (( fail_count++ )) || true
-            fi
-            continue
-        fi
+                break
+                ;;
+        esac
         # Queue empty — exit once extraction is also done.
         [[ -f "$QUEUE_DIR/.extract_done" ]] && break
         # Sleep then double the backoff, capped at the maximum.

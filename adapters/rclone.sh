@@ -33,9 +33,19 @@
 # =============================================================================
 
 set -euo pipefail
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$ROOT_DIR/lib/logging.sh"
 
 src="$1"
 dest="$2"
+
+# Stub guard — see adapters/ftp.sh for rationale. Set ALLOW_STUB_ADAPTERS=1
+# to allow a no-op stub completion (dev/test without a real remote).
+if [[ "${ALLOW_STUB_ADAPTERS:-0}" != 1 ]]; then
+    log_error "rclone: adapter is a stub and has not been implemented."
+    log_error "rclone: set ALLOW_STUB_ADAPTERS=1 to allow the stub to report success anyway."
+    exit 1
+fi
 
 # TODO: replace this echo with a real rclone invocation using the vars above
 echo "[rclone] STUB — would transfer $src → ${RCLONE_REMOTE:-<RCLONE_REMOTE>}${RCLONE_DEST_BASE:-}/$dest"

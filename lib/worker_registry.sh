@@ -109,8 +109,13 @@ worker_job_begin() {
     (
         flock -x 9
         # Remove any stale entry for this pid first (safety), then append.
+        # If awk fails, rm the tmp orphan rather than leaving it behind.
         local tmp="${reg}.tmp.$BASHPID"
-        awk -v pid="$pid" '$1 != pid' "$reg" > "$tmp" && mv "$tmp" "$reg"
+        if awk -v pid="$pid" '$1 != pid' "$reg" > "$tmp"; then
+            mv "$tmp" "$reg"
+        else
+            rm -f -- "$tmp"
+        fi
         printf '%s %s\n' "$pid" "$job" >> "$reg"
     ) 9>"$lock"
 }
@@ -144,7 +149,11 @@ worker_job_end() {
     (
         flock -x 9
         tmp="${reg}.tmp.$BASHPID"
-        awk -v pid="$pid" '$1 != pid' "$reg" > "$tmp" && mv "$tmp" "$reg"
+        if awk -v pid="$pid" '$1 != pid' "$reg" > "$tmp"; then
+            mv "$tmp" "$reg"
+        else
+            rm -f -- "$tmp"
+        fi
     ) 9>"$lock"
 }
 
@@ -174,7 +183,16 @@ worker_registry_recover() {
     (
         flock -x 9
         # Print the job (everything after the first space on each line).
-        awk 'NF >= 2 { $1=""; sub(/^ /, ""); print }' "$reg"
+        #
+        # DO NOT use `{ $1=""; sub(/^ /,""); print }` here. Assigning to $1
+        # causes awk to rebuild $0 using OFS (default single space), which
+        # COLLAPSES runs of whitespace anywhere in the job string. A job path
+        # containing two consecutive spaces would come back with one space,
+        # and the mismatched path would then fail to re-queue correctly.
+        #
+        # index-based split keeps $0 byte-exact: take everything after the
+        # first space literally, with no field reconstruction.
+        awk '{ i = index($0, " "); if (i > 0) print substr($0, i + 1) }' "$reg"
         rm -f -- "$reg"
         : > "$reg"
     ) 9>"$lock"

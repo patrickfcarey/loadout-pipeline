@@ -222,13 +222,47 @@ To add a new adapter:
 
 ## Testing
 
-`test/run_tests.sh` runs 21 test cases (94 assertions) covering: default run,
-single worker, more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs,
-custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (.bin + .cue),
-partial-hit precheck, mid-extract failure + cleanup, rerun after failure,
-concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup
-+ rerun, worker registry unit test, rclone/rsync adapter smoke tests,
-intra-run orphan recovery via the worker registry, phantom ledger GC after
-SIGKILL, mid-string `/../` rejection in the job-line parser, and a real 196 MB
-PS2 game archive exercising spaces and parentheses in the iso path (Test 21 —
-skipped automatically when the archive is absent).
+### Unit suite (`test/run_tests.sh`)
+
+**27 test cases, 99 assertions.** Covers: default run, single worker, more
+workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`,
+SD precheck skip, multi-file archive (.bin + .cue), partial-hit precheck,
+mid-extract failure + cleanup, rerun after failure, concurrent space reservation
+under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit
+test, rclone/rsync adapter smoke tests, intra-run orphan recovery via the worker
+registry, phantom ledger GC after SIGKILL (H1 fix), mid-string `/../` rejection
+in the job-line parser (M2 fix), a real 196 MB PS2 archive exercising spaces and
+parentheses in the iso path (Test 21 — **hard-fails when the archive is absent**),
+and regression pins for C1 (basename `.`), C2 (`_space_dev` loop), H1
+(queue_pop rc), and M3 (worker_registry consecutive spaces).
+
+Mutation validation (`test/validate_tests.sh`) provides **57 V-checks** — one
+per meaningful assertion — to confirm every assertion would catch a real defect.
+
+### Integration suite (`test/integration/`)
+
+Exercises the same scenarios on a **real kernel substrate**: loop-mounted vfat
+(via losetup + mkfs.vfat), a 6 MB tmpfs that produces real ENOSPC, real SIGKILL
+via an in-process watcher (no shims), real dead PIDs from reaped children, and
+real sshd/pure-ftpd/rclone services. All substrate provisioning is containerised:
+
+```bash
+bash test/integration/launch.sh   # builds + runs inside --privileged Docker
+```
+
+Key files:
+
+| Path | Purpose |
+|------|---------|
+| `test/integration/Dockerfile` | Privileged test image (debian-slim + p7zip, dosfstools, pure-ftpd, openssh, rclone, rsync) |
+| `test/integration/launch.sh` | Host-side: `docker build` + `docker run --privileged` |
+| `test/integration/run_integration.sh` | Orchestrator inside the container |
+| `test/integration/helpers/bootstrap.sh` | Provisions 7 substrates; single EXIT/INT/TERM teardown trap |
+| `test/integration/helpers/verify.sh` | `tree_hash`, `assert_tree_eq`, byte-exact assertions |
+| `test/integration/helpers/inject.sh` | `inject_sigkill_after`, `inject_dead_pid`, `inject_enospc` |
+| `test/integration/fixtures/generate_int_archives.sh` | Synthetic urandom archives (cached by presence) |
+| `test/integration/suites/01–10` | Mirror unit-suite numbering; stub-adapter scenarios hard-fail |
+
+Stub adapter scenarios (ftp, hdl_dump, rclone, rsync) intentionally produce
+`FAIL` until real implementations land. Their failure messages are stable and
+greppable so CI output makes the gap visible without hiding it.

@@ -41,9 +41,19 @@
 # =============================================================================
 
 set -euo pipefail
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$ROOT_DIR/lib/logging.sh"
 
 src="$1"
 dest="$2"
+
+# Stub guard — see adapters/ftp.sh for rationale. Set ALLOW_STUB_ADAPTERS=1
+# to allow a no-op stub completion (dev/test without a real rsync target).
+if [[ "${ALLOW_STUB_ADAPTERS:-0}" != 1 ]]; then
+    log_error "rsync: adapter is a stub and has not been implemented."
+    log_error "rsync: set ALLOW_STUB_ADAPTERS=1 to allow the stub to report success anyway."
+    exit 1
+fi
 
 _target="${RSYNC_DEST_BASE:-<RSYNC_DEST_BASE>}/$dest"
 if [[ -n "${RSYNC_HOST:-}" ]]; then

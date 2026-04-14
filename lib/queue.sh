@@ -54,7 +54,10 @@ queue_push() {
     # Append $BASHPID to the nanosecond timestamp so filenames stay unique
     # even if push is ever called concurrently from multiple processes.
     id="$(date +%s%N).$BASHPID"
-    echo "$input_job" > "$qdir/$id.job"
+    # printf, not echo: a job string starting with "-n" or "-e" would be
+    # interpreted by echo as a flag and dropped. Jobs begin with '~' today
+    # and so are safe, but NASA rule: prefer the definite-behaviour form.
+    printf '%s\n' "$input_job" > "$qdir/$id.job"
 }
 
 # ─── queue_pop ────────────────────────────────────────────────────────────────
@@ -62,7 +65,7 @@ queue_push() {
 # Multiple concurrent workers may call queue_pop simultaneously; the atomic mv
 # rename ensures each job is returned to exactly one caller. Callers that lose
 # the mv race for a given file move on to the next candidate rather than giving
-# up. Returns 1 (and prints nothing) when the queue is empty.
+# up.
 #
 # Parameters
 #   $1  qdir — path to the queue directory to pop from
@@ -70,6 +73,9 @@ queue_push() {
 # Returns
 #   0 — success; the claimed job string is printed to stdout
 #   1 — queue is empty (no .job files remain unclaimed)
+#   2 — error reading a claimed file (caller should treat as a hard failure,
+#       NOT as "queue empty" — conflating the two would cause workers to exit
+#       silently with unprocessed jobs still in the queue)
 #
 # Modifies    : filesystem — removes the claimed .job file from qdir
 #
@@ -78,10 +84,14 @@ queue_push() {
 #   file    — absolute path to a candidate .job file from the sorted find list
 #   claimed — temporary path used during the atomic mv claim:
 #             "<file>.claimed.<BASHPID>"; deleted immediately after cat
+#   content — bytes read from the claimed file; printed only after the rm
+#             succeeds so a cat/rm failure does not lose the job silently
+#   cat_rc  — exit code from cat; used to differentiate a corrupted claim
+#             (rc=2) from a clean empty queue (rc=1)
 # ──────────────────────────────────────────────────────────────────────────────
 queue_pop() {
     log_enter
-    local qdir="$1" file claimed
+    local qdir="$1" file claimed content cat_rc
     # Sort the glob explicitly. Bash expands globs in the shell's collation
     # order which is "almost" chronological for our <nanosec>.<pid>.job
     # filenames — but not guaranteed under pid wraparound or clock skew.
@@ -100,8 +110,21 @@ queue_pop() {
         # mv is atomic on the same filesystem: only one worker can win this
         # race for a given source path.
         mv "$file" "$claimed" 2>/dev/null || continue
-        cat "$claimed"
+        # Read the claimed file into a variable FIRST, then always remove
+        # the claim file, then print. Without this order, a cat failure
+        # under set -e would exit the function before the rm, orphaning
+        # the .claimed.<pid> file AND losing the job content.
+        cat_rc=0
+        content="$(cat "$claimed" 2>/dev/null)" || cat_rc=$?
         rm -f "$claimed"
+        if (( cat_rc != 0 )); then
+            # The claim succeeded but the contents vanished — this is a
+            # hard error, not a normal end-of-queue. Return 2 so the
+            # caller does NOT silently exit its "while queue_pop" loop
+            # thinking the queue is empty.
+            return 2
+        fi
+        printf '%s\n' "$content"
         return 0
     done < <(find "$qdir" -maxdepth 1 -name '*.job' -print 2>/dev/null | sort)
     return 1

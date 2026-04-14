@@ -57,6 +57,12 @@ load_jobs() {
     local line lineno=0
     while IFS= read -r line; do
         (( lineno++ )) || true
+        # Trim trailing CR so jobs files saved with CRLF line endings on
+        # Windows/WSL parse the same as LF-only files. Without this, the
+        # closing '~' of each line would be followed by '\r', the anchored
+        # regex below would silently reject every job, and the user would
+        # see a cryptic "invalid job" with no obvious cause.
+        line="${line%$'\r'}"
         [[ -z "$line" || "$line" =~ ^# ]] && continue
 
         # Format: ~iso_path|adapter|destination~
@@ -112,6 +118,24 @@ load_jobs() {
         if [[ "$_check_iso"  =~ (^|/)\.\.(/|$) || \
               "$_check_dest" =~ (^|/)\.\.(/|$) ]]; then
             log_error "path traversal attempt (..) at line $lineno: '$line'"
+            return 1
+        fi
+
+        # Archive basename (after .7z strip) must be a real filename, not a
+        # directory reference. Without this guard, a path like "/..7z" passes
+        # the traversal regex above (because ".." is followed by "7", not "/"
+        # or end-of-string) and GNU basename then strips the ".7z" suffix to
+        # a single ".", which would cause extract.sh to compute out_dir as
+        # "$EXTRACT_DIR/." — i.e. $EXTRACT_DIR itself. Extraction into the
+        # root of EXTRACT_DIR would mix sibling workers' output, and the
+        # dispatch token would then leak the entire directory to the adapter
+        # destination. Reject anything whose stripped basename is empty or
+        # starts with a dot.
+        local _check_stem
+        _check_stem="$(basename "$_check_iso" .7z)"
+        if [[ -z "$_check_stem" || "$_check_stem" == .* ]]; then
+            log_error "invalid archive basename at line $lineno: '$_check_iso'"
+            log_error "archive filename must not be empty or begin with a dot after stripping .7z"
             return 1
         fi
 

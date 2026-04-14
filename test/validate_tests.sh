@@ -454,6 +454,357 @@ grep -q '\[rsync\] STUB.*→ admin@nas\.local:/mnt/nas/games/game2' "$V_LOG" 2>/
 rm -f "$V_LOG"
 
 # ═════════════════════════════════════════════════════════════════════════════
+# V37–V40  Phantom ledger GC  (test 19)
+# ═════════════════════════════════════════════════════════════════════════════
+# Exercises both code paths that consume the ledger owner-PID field:
+#   - space_ledger_empty   (non-destructive liveness filter)
+#   - _space_ledger_gc_phantoms (destructive rewrite)
+# and the end-to-end space_reserve flow where a phantom holds all capacity.
+header "V37–V40: phantom ledger GC (test 19)"
+
+V_GC_QDIR="/tmp/lp_validate_gc_$$"
+mkdir -p "$V_GC_QDIR"
+
+while IFS= read -r line; do
+    case "$line" in
+        CAUGHT*) caught "${line#CAUGHT }" ;;
+        MISSED*) missed "${line#MISSED }" ;;
+    esac
+done < <(
+    export QUEUE_DIR="$V_GC_QDIR"
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/space.sh"
+
+    space_init
+
+    # A PID well above any plausible kernel.pid_max default (32768) — this
+    # must NOT correspond to a live process. LIVE_PID is the subshell's
+    # parent, which is alive throughout the test.
+    DEAD_PID=9999999
+    LIVE_PID=$$
+    ledger="$(_space_ledger_path)"
+
+    # V37: live-only ledger → space_ledger_empty must return non-zero (not empty).
+    printf 'extract.%s 2049 102400 2049 204800 %s\n' "$LIVE_PID" "$LIVE_PID" > "$ledger"
+    if ! space_ledger_empty; then
+        echo "CAUGHT V37: live entry recognised — space_ledger_empty returned false"
+    else
+        echo "MISSED V37: space_ledger_empty returned true on a LIVE entry"
+    fi
+
+    # V38: phantom-only ledger → space_ledger_empty must return 0 (empty).
+    printf 'extract.%s 2049 104857600 2049 209715200 %s\n' "$DEAD_PID" "$DEAD_PID" > "$ledger"
+    if space_ledger_empty; then
+        echo "CAUGHT V38: phantom-only ledger treated as empty"
+    else
+        echo "MISSED V38: phantom-only ledger was NOT treated as empty"
+    fi
+
+    # V39: mixed → _space_ledger_gc_phantoms drops phantom, keeps live.
+    printf 'extract.%s 2049 104857600 2049 209715200 %s\n' "$DEAD_PID" "$DEAD_PID" >  "$ledger"
+    printf 'extract.%s 2049 102400 2049 204800 %s\n'       "$LIVE_PID" "$LIVE_PID" >> "$ledger"
+    _space_ledger_gc_phantoms
+    phantom_remaining=0
+    live_remaining=0
+    while read -r _ _ _ _ _ pid; do
+        [[ "$pid" == "$DEAD_PID" ]] && phantom_remaining=1
+        [[ "$pid" == "$LIVE_PID" ]] && live_remaining=1
+    done < "$ledger"
+    if (( phantom_remaining == 0 && live_remaining == 1 )); then
+        echo "CAUGHT V39: GC preserved live entry and dropped phantom"
+    else
+        echo "MISSED V39: GC mixed-case incorrect (phantom=$phantom_remaining live=$live_remaining)"
+    fi
+
+    # V40: phantom holds ALL capacity → space_reserve must succeed after GC.
+    export SPACE_AVAIL_OVERRIDE_BYTES=2000000
+    printf 'extract.%s 2049 1999999 2049 1999999 %s\n' "$DEAD_PID" "$DEAD_PID" > "$ledger"
+    if space_reserve "extract.v40" "$QUEUE_DIR" 100000 "$QUEUE_DIR" 100000; then
+        echo "CAUGHT V40: space_reserve succeeded after GCing phantom capacity"
+    else
+        echo "MISSED V40: space_reserve failed even though only a phantom held capacity"
+    fi
+    space_release "extract.v40"
+)
+
+rm -rf "$V_GC_QDIR"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V41–V43  load_jobs mid-string /../ rejection  (test 20)
+# ═════════════════════════════════════════════════════════════════════════════
+# The traversal regex in lib/jobs.sh must reject '..' anywhere — leading,
+# trailing, or mid-string. V41/V42 are the M2 regression inputs; V43 is the
+# over-broad negative check (legitimate '.' in filename must NOT be rejected).
+header "V41–V43: load_jobs mid-string /../ rejection (test 20)"
+
+V_TRAV_JOBS="/tmp/lp_validate_trav_$$.jobs"
+
+while IFS= read -r line; do
+    case "$line" in
+        CAUGHT*) caught "${line#CAUGHT }" ;;
+        MISSED*) missed "${line#MISSED }" ;;
+    esac
+done < <(
+    export ROOT_DIR
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/jobs.sh"
+
+    # V41: mid-string /../ in iso path MUST be rejected.
+    printf '%s\n' "~/abs/../etc/passwd.7z|sd|games/game1~" > "$V_TRAV_JOBS"
+    JOBS=()
+    if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
+        echo "MISSED V41: mid-string /../ in iso path was NOT rejected"
+    else
+        echo "CAUGHT V41: mid-string /../ in iso path rejected"
+    fi
+
+    # V42: mid-string /../ in destination MUST be rejected.
+    printf '%s\n' "~/abs/path/game.7z|sd|games/../../../etc/passwd~" > "$V_TRAV_JOBS"
+    JOBS=()
+    if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
+        echo "MISSED V42: mid-string /../ in destination was NOT rejected"
+    else
+        echo "CAUGHT V42: mid-string /../ in destination rejected"
+    fi
+
+    # V43: legitimate '.' in filename must still be ACCEPTED.
+    printf '%s\n' "~/abs/path/game.v1.7z|sd|games/game.v1~" > "$V_TRAV_JOBS"
+    JOBS=()
+    if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
+        echo "CAUGHT V43: legitimate path with '.' in names accepted (guard not over-broad)"
+    else
+        echo "MISSED V43: legitimate path with '.' in names wrongly rejected"
+    fi
+)
+
+rm -f "$V_TRAV_JOBS"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V44–V46  load_jobs basename-'.' rejection  (test R1 / C1 regression)
+# ═════════════════════════════════════════════════════════════════════════════
+# C1: "/..7z" passes the traversal regex (".." followed by "7", not "/" or
+# end-of-string) but basename .7z yields "." — extract.sh would then compute
+# out_dir as "$EXTRACT_DIR/." and clobber sibling workers' output. jobs.sh
+# now computes the stripped basename and rejects anything empty or dot-led.
+header "V44–V46: load_jobs basename-'.' rejection (R1 / C1 regression)"
+
+V_BN_JOBS="/tmp/lp_validate_basename_$$.jobs"
+
+while IFS= read -r line; do
+    case "$line" in
+        CAUGHT*) caught "${line#CAUGHT }" ;;
+        MISSED*) missed "${line#MISSED }" ;;
+    esac
+done < <(
+    export ROOT_DIR
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/jobs.sh"
+
+    # V44: '/..7z' — basename .7z → '.' — MUST be rejected (C1 regression).
+    printf '%s\n' "~/..7z|sd|games/game1~" > "$V_BN_JOBS"
+    JOBS=()
+    if load_jobs "$V_BN_JOBS" 2>/dev/null; then
+        echo "MISSED V44: '/..7z' was NOT rejected — C1 regression"
+    else
+        echo "CAUGHT V44: '/..7z' rejected by basename guard"
+    fi
+
+    # V45: '.hidden.7z' — basename begins with dot — MUST be rejected.
+    printf '%s\n' "~/games/.hidden.7z|sd|games/game1~" > "$V_BN_JOBS"
+    JOBS=()
+    if load_jobs "$V_BN_JOBS" 2>/dev/null; then
+        echo "MISSED V45: '.hidden.7z' was NOT rejected"
+    else
+        echo "CAUGHT V45: '.hidden.7z' rejected (basename begins with dot)"
+    fi
+
+    # V46: legitimate 'game1.7z' MUST still be accepted (guard not over-broad).
+    printf '%s\n' "~/games/game1.7z|sd|games/game1~" > "$V_BN_JOBS"
+    JOBS=()
+    if load_jobs "$V_BN_JOBS" 2>/dev/null; then
+        echo "CAUGHT V46: legitimate 'game1.7z' accepted (guard not over-broad)"
+    else
+        echo "MISSED V46: legitimate 'game1.7z' wrongly rejected by basename guard"
+    fi
+)
+
+rm -f "$V_BN_JOBS"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V47–V48  _space_dev termination on non-existent paths  (R2 / C2 regression)
+# ═════════════════════════════════════════════════════════════════════════════
+# C2: relative path with no '/' would spin forever in `p="${p%/*}"`. Each
+# V-check runs under `timeout 5`; if the bug regresses, timeout fires with
+# exit 124.
+header "V47–V48: _space_dev termination (R2 / C2 regression)"
+
+# V47: relative non-existent path must NOT infinite-loop. timeout 124 = bug.
+V47_RC=0
+timeout 5 bash -c '
+    ROOT_DIR="$1"
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/space.sh"
+    _space_dev "lp_validate_nonexistent_$$"
+' -- "$ROOT_DIR" >/dev/null 2>&1 || V47_RC=$?
+if (( V47_RC == 0 )); then
+    caught "V47: _space_dev terminated cleanly on relative non-existent path"
+elif (( V47_RC == 124 )); then
+    missed "V47: _space_dev TIMED OUT — C2 infinite-loop bug regressed"
+else
+    missed "V47: _space_dev exited $V47_RC (expected 0)"
+fi
+
+# V48: _space_dev '/' must print a numeric device id (catches a regression
+# that emits empty or non-numeric output).
+V48_OUT=$(timeout 5 bash -c '
+    ROOT_DIR="$1"
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/space.sh"
+    _space_dev /
+' -- "$ROOT_DIR" 2>/dev/null)
+if [[ "$V48_OUT" =~ ^[0-9]+$ ]]; then
+    caught "V48: _space_dev on '/' returned numeric device id ($V48_OUT)"
+else
+    missed "V48: _space_dev on '/' returned non-numeric: '$V48_OUT'"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V49–V50  queue_pop rc discrimination  (R3 / H1 regression)
+# ═════════════════════════════════════════════════════════════════════════════
+# H1: queue_pop conflated "empty" with "read error on claimed file", causing
+# workers to silently exit the drain loop on a transient read failure. The
+# current contract:
+#   rc=0 — job returned
+#   rc=1 — queue empty (legitimate drain)
+#   rc=2 — read error (NOT tested here — cannot be triggered deterministically
+#          without race injection)
+header "V49–V50: queue_pop rc discrimination (R3 / H1 regression)"
+
+V_Q_DIR="/tmp/lp_validate_qpop_$$"
+mkdir -p "$V_Q_DIR"
+
+while IFS= read -r line; do
+    case "$line" in
+        CAUGHT*) caught "${line#CAUGHT }" ;;
+        MISSED*) missed "${line#MISSED }" ;;
+    esac
+done < <(
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/queue.sh"
+
+    queue_init "$V_Q_DIR"
+
+    # V49: empty queue → rc MUST be exactly 1.
+    queue_pop "$V_Q_DIR" >/dev/null
+    rc=$?
+    if (( rc == 1 )); then
+        echo "CAUGHT V49: queue_pop returned 1 on empty queue"
+    else
+        echo "MISSED V49: queue_pop returned $rc on empty queue (expected 1)"
+    fi
+
+    # V50: push, then pop → rc=0 and output byte-exact.
+    V50_JOB='~/games/game1.7z|sd|games/g1~'
+    queue_push "$V_Q_DIR" "$V50_JOB"
+    V50_OUT=$(queue_pop "$V_Q_DIR")
+    rc=$?
+    if (( rc == 0 )) && [[ "$V50_OUT" == "$V50_JOB" ]]; then
+        echo "CAUGHT V50: queue_pop returned 0 with byte-exact job string"
+    else
+        echo "MISSED V50: queue_pop rc=$rc out='$V50_OUT' (expected rc=0 out='$V50_JOB')"
+    fi
+)
+
+rm -rf "$V_Q_DIR"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V51–V53  worker_registry_recover byte-exact preservation  (R4 / M3 regression)
+# ═════════════════════════════════════════════════════════════════════════════
+# M3: the old awk rule `{ $1=""; sub(/^ /,""); print }` triggered field
+# rebuild with OFS (single space), collapsing consecutive spaces inside job
+# strings. The fix switched to an index-based split that keeps $0 byte-exact.
+# V52 is the direct regression check — a job path with two consecutive spaces.
+header "V51–V53: worker_registry_recover byte-exact (R4 / M3 regression)"
+
+V_WR_DIR="/tmp/lp_validate_wr_$$"
+mkdir -p "$V_WR_DIR"
+
+while IFS= read -r line; do
+    case "$line" in
+        CAUGHT*) caught "${line#CAUGHT }" ;;
+        MISSED*) missed "${line#MISSED }" ;;
+    esac
+done < <(
+    export QUEUE_DIR="$V_WR_DIR"
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/worker_registry.sh"
+
+    # V51: single-space job — recover emits byte-exact.
+    worker_registry_init
+    JOB1='~/games/game1.7z|sd|games/g1~'
+    printf '12345 %s\n' "$JOB1" > "$(_wr_path)"
+    OUT1=$(worker_registry_recover)
+    if [[ "$OUT1" == "$JOB1" ]]; then
+        echo "CAUGHT V51: recover preserved single-space job byte-exact"
+    else
+        echo "MISSED V51: recover corrupted single-space job: '$OUT1'"
+    fi
+
+    # V52: DOUBLE-space job — recover emits byte-exact (M3 bug).
+    worker_registry_init
+    JOB2='~/games/my  game.7z|sd|games/g1~'
+    printf '12345 %s\n' "$JOB2" > "$(_wr_path)"
+    OUT2=$(worker_registry_recover)
+    if [[ "$OUT2" == "$JOB2" ]]; then
+        echo "CAUGHT V52: recover preserved DOUBLE-space job byte-exact"
+    else
+        echo "MISSED V52: recover collapsed double space to single: '$OUT2'"
+    fi
+
+    # V53: empty registry — recover emits nothing.
+    worker_registry_init
+    OUT3=$(worker_registry_recover)
+    if [[ -z "$OUT3" ]]; then
+        echo "CAUGHT V53: recover on empty registry emitted nothing"
+    else
+        echo "MISSED V53: recover on empty registry emitted spurious output: '$OUT3'"
+    fi
+)
+
+rm -rf "$V_WR_DIR"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V54–V55  Negative file existence — strip-list assertions  (test 21)
+# ═════════════════════════════════════════════════════════════════════════════
+# Test 21 uses `[[ ! -f "$dir/Vimm's Lair.txt" ]]` to assert the strip list
+# was applied. V1–V4 only validate the POSITIVE existence pattern; these two
+# V-checks validate the NEGATIVE existence pattern directly. Inverted logic
+# so we use if/else instead of the &&/|| idiom to keep intent obvious.
+header "V54–V55: strip-list negative file existence (test 21)"
+
+V_STRIP_DIR="/tmp/lp_validate_strip_$$"
+mkdir -p "$V_STRIP_DIR"
+
+# V54: file IS present → the `! -f` assertion must return FALSE (so test 21
+# would fail when the strip list regresses).
+touch "$V_STRIP_DIR/Vimm's Lair.txt"
+if [[ ! -f "$V_STRIP_DIR/Vimm's Lair.txt" ]]; then
+    missed "V54: ! -f returned true even though the file exists — assertion vacuous"
+else
+    caught "V54: ! -f correctly flags file presence — would catch strip-list regression"
+fi
+
+# V55: file absent → the `! -f` assertion must return TRUE (positive path).
+rm -f "$V_STRIP_DIR/Vimm's Lair.txt"
+if [[ ! -f "$V_STRIP_DIR/Vimm's Lair.txt" ]]; then
+    caught "V55: ! -f on absent file correctly returns true"
+else
+    missed "V55: ! -f on absent file wrongly returned false"
+fi
+
+rm -rf "$V_STRIP_DIR"
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Summary
 # ═════════════════════════════════════════════════════════════════════════════
 

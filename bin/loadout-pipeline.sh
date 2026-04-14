@@ -13,13 +13,13 @@ source "$ROOT_DIR/lib/workers.sh"
 
 JOBS_FILE="${1:-$ROOT_DIR/examples/example.jobs}"
 
-echo "[loadout-pipeline] Initializing environment..."
+log_info "Initializing environment..."
 init_environment
 
-echo "[loadout-pipeline] Loading jobs..."
+log_info "Loading jobs from $JOBS_FILE..."
 load_jobs "$JOBS_FILE"
 
-echo "[loadout-pipeline] Starting pipeline..."
+log_info "Starting pipeline..."
 workers_start
 
-echo "[loadout-pipeline] All jobs completed!"
+log_info "All jobs completed!"

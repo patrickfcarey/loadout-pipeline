@@ -21,6 +21,14 @@ TEST_SD_DIR="/tmp/iso_pipeline_test_sd_default_$$"
 mkdir -p "$TEST_SD_DIR"
 export SD_MOUNT_POINT="$TEST_SD_DIR"
 
+# Stub adapters (ftp, hdl, rclone, rsync) refuse to run by default so real
+# pipeline invocations don't silently "succeed" without actually transferring
+# anything. The test suite intentionally exercises those stubs (example.jobs
+# has ftp/hdl entries, and 07_adapters.sh covers rclone/rsync), so opt in
+# once globally here. A test that wants to verify the stub refusal can
+# override with ALLOW_STUB_ADAPTERS=0 inline.
+export ALLOW_STUB_ADAPTERS=1
+
 PASS=0
 FAIL=0
 
@@ -37,6 +45,7 @@ source "$ROOT_DIR/test/suites/06_worker_registry.sh"
 source "$ROOT_DIR/test/suites/07_adapters.sh"
 source "$ROOT_DIR/test/suites/08_security.sh"
 source "$ROOT_DIR/test/suites/09_real_archive.sh"
+source "$ROOT_DIR/test/suites/10_regression.sh"
 
 # ── cleanup & summary ─────────────────────────────────────────────────────────
 rm -rf "$TEST_SD_DIR"
