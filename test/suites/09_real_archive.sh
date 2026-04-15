@@ -24,7 +24,11 @@
 header "Test 21: real game ISO — Ultimate Board Game Collection (USA)"
 
 REAL_ARCHIVE=$(find "$FIXTURES_DIR/isos" -name "Ultimate Board Game Collection*" 2>/dev/null | head -1)
-REAL_JOBS="$ROOT_DIR/test/real_isos.jobs"
+# Generate the real-archive jobs file at runtime so the path tracks
+# $REAL_ARCHIVE's actual location on disk (WSL /mnt/c/..., Oracle Linux
+# /tank/..., CI /home/runner/..., etc). A committed file with a baked-in
+# absolute path would break the moment the repo moved off one machine.
+REAL_JOBS="/tmp/iso_pipeline_test_real_jobs_$$.jobs"
 REAL_EXTRACT="/tmp/iso_pipeline_test_real_isos_$$"
 REAL_SD_DIR="/tmp/iso_pipeline_test_real_isos_sd_$$"
 REAL_LOG="/tmp/iso_pipeline_test_real_isos_$$.log"
@@ -38,6 +42,7 @@ if [[ -z "$REAL_ARCHIVE" ]]; then
 else
     echo "  archive: $REAL_ARCHIVE ($(du -sh "$REAL_ARCHIVE" 2>/dev/null | cut -f1))"
     mkdir -p "$REAL_EXTRACT" "$REAL_SD_DIR"
+    printf '~%s|sd|ps2~\n' "$REAL_ARCHIVE" > "$REAL_JOBS"
 
     set +e
     EXTRACT_DIR="$REAL_EXTRACT" \
@@ -97,5 +102,5 @@ else
         fail "Vimm's Lair.txt reached the sd destination — strip logic did not run before dispatch"
     fi
 
-    rm -rf "$REAL_EXTRACT" "$REAL_SD_DIR" "$REAL_LOG"
+    rm -rf "$REAL_EXTRACT" "$REAL_SD_DIR" "$REAL_LOG" "$REAL_JOBS"
 fi

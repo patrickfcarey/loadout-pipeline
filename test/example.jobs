@@ -1,5 +1,0 @@
-# Test jobs — run test/fixtures/create_fixtures.sh first to generate the .7z archives.
-# format: ~iso_path|adapter|destination~
-~/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game1.7z|ftp|/remote/path/game1~
-~/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game2.7z|hdl|/dev/hdd0~
-~/mnt/c/Github/loadout-pipeline/test/fixtures/isos/game3.7z|sd|games/game3~

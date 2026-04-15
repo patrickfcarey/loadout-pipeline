@@ -20,7 +20,18 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_JOBS="$ROOT_DIR/test/example.jobs"
+FIXTURES_DIR="$ROOT_DIR/test/fixtures"
+# Generate the test jobs file at runtime from $ROOT_DIR so this validator
+# works in any clone location (WSL /mnt/c/..., Oracle Linux /tank/..., CI
+# /home/runner/..., etc). A committed file with baked-in absolute paths
+# would break the moment the repo moved off one machine.
+TEST_JOBS="/tmp/iso_pipeline_validate_jobs_$$.jobs"
+cat > "$TEST_JOBS" <<EOF
+~$FIXTURES_DIR/isos/game1.7z|ftp|/remote/path/game1~
+~$FIXTURES_DIR/isos/game2.7z|hdl|/dev/hdd0~
+~$FIXTURES_DIR/isos/game3.7z|sd|games/game3~
+EOF
+trap 'rm -f "$TEST_JOBS"' EXIT
 
 VPASS=0
 VFAIL=0
