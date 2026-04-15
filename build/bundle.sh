@@ -182,6 +182,7 @@ emit_strip_list_setup
 for f in \
     lib/config.sh \
     lib/logging.sh \
+    lib/prereq.sh \
     lib/init.sh \
     lib/job_format.sh \
     lib/strip_list.sh \

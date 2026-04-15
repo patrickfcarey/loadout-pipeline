@@ -49,7 +49,93 @@ The first argument to `loadout-pipeline.sh` is the path to a **jobs file** or a 
 
 ---
 
-## Installation
+## Deployment
+
+`loadout-pipeline` is designed to be deployed and run **three different ways**, and all three are treated as first-class:
+
+1. **Git checkout** — run directly out of the repo root (`bash bin/loadout-pipeline.sh …`).
+2. **Single bundled `.sh` file** — one self-contained script dropped onto a host (e.g. `/usr/local/bin/`) and optionally wired into `systemd` (or the equivalent on non-systemd distros).
+3. **Docker image** — built from the included `Dockerfile`, with archives, profiles, and credentials supplied at runtime.
+
+Every documented feature, env var, and CLI invocation works identically across all three. The test suite (`test/run_tests.sh` unit tests + `test/integration/run_integration.sh` integration tests + `test/validate_tests.sh` mutation validations) is run against the git-checkout layout **and** the bundled `dist/loadout-pipeline.sh` **and** the Docker image — a release is only cut when all three are green. None of the three modes is a "preferred" mode; pick whichever fits the host.
+
+### Supported operating systems
+
+The pipeline is pure POSIX shell + Bash 4+ and depends only on widely-available packages, so it runs on any modern Linux distribution and on macOS. Tested / compatible:
+
+- **Debian** 11, 12 and derivatives
+- **Ubuntu** 20.04, 22.04, 24.04 and derivatives (Linux Mint, Pop!_OS, Kubuntu, …)
+- **Fedora** 38+ and **RHEL / CentOS Stream / Rocky / AlmaLinux** 8+
+- **Arch Linux** / **Manjaro** / **EndeavourOS** (rolling)
+- **openSUSE** Leap 15.5+ / Tumbleweed
+- **Alpine Linux** 3.18+ (install the `bash` package — the default shell is `ash`)
+- **Void Linux**, **Gentoo**
+- **FreeBSD** 13+ (via `bash` + GNU coreutils from ports)
+- **macOS** 12+ (via Homebrew — see note below on Bash version)
+- **Windows** via **WSL2** running any of the above distros
+- The official **Docker image** (`debian:stable-slim` base) works anywhere Docker / Podman runs, including Windows and macOS hosts
+
+> macOS ships Bash 3.2; install Bash 4+ (`brew install bash`) and GNU coreutils (`brew install coreutils findutils gnu-sed`) before running natively. The Docker image is the friction-free path on macOS.
+
+### Required packages
+
+All three deployment modes need the same runtime dependencies. The Docker image bakes them in; for git-checkout and single-file deployments install them yourself.
+
+**Core (always required):**
+
+- `bash` (>= 4.0)
+- `coreutils` — `stat`, `realpath`, `install`, `df`, `du`, `mv`, `cp`
+- `findutils` — `find`, `xargs`
+- `procps` / `procps-ng` — `ps`, `kill` (worker-registry PID tracking)
+- `util-linux` — `flock` (atomic space ledger), `losetup`
+- `p7zip-full` (Debian/Ubuntu) / `p7zip-plugins` (Fedora/RHEL) / `p7zip` (Arch, Alpine) — provides `7z x` and `7z l`
+
+**Per-adapter (install only what you dispatch to):**
+
+- `rsync` — used by the **sdcard** adapter and the **rsync** adapter
+- `rclone` — used by the **rclone** adapter
+- `openssh-client` / `openssh` — used by the **rsync** adapter when targeting rsync-over-SSH
+- `ca-certificates` — used by **rclone** for TLS
+- `hdl_dump` — used by the **hdl_dump** adapter (build from source; not packaged on most distros)
+- An FTP client (`curl`, `lftp`, or `ftp`) — used by the **ftp** adapter
+
+**Install recipes:**
+
+```bash
+# Debian / Ubuntu / Mint / Pop!_OS
+sudo apt-get update && sudo apt-get install -y \
+    bash coreutils findutils procps util-linux \
+    p7zip-full rsync rclone openssh-client ca-certificates
+
+# Fedora / RHEL / Rocky / AlmaLinux
+sudo dnf install -y \
+    bash coreutils findutils procps-ng util-linux \
+    p7zip p7zip-plugins rsync rclone openssh-clients ca-certificates
+
+# Arch / Manjaro / EndeavourOS
+sudo pacman -S --needed \
+    bash coreutils findutils procps-ng util-linux \
+    p7zip rsync rclone openssh ca-certificates
+
+# openSUSE
+sudo zypper install \
+    bash coreutils findutils procps util-linux \
+    p7zip-full rsync rclone openssh ca-certificates
+
+# Alpine
+sudo apk add \
+    bash coreutils findutils procps util-linux \
+    p7zip rsync rclone openssh-client ca-certificates
+
+# macOS (Homebrew)
+brew install bash coreutils findutils p7zip rsync rclone
+```
+
+---
+
+### 1. Git-repo deployment
+
+Clone the repo and run directly from its root — the most convenient mode for development, testing, and hosts where you want updates via `git pull`.
 
 ```bash
 git clone <repo_url>
@@ -60,7 +146,157 @@ chmod +x bin/loadout-pipeline.sh lib/extract.sh lib/dispatch.sh lib/precheck.sh 
          test/integration/fixtures/generate_int_archives.sh
 # lib/*.sh files are sourced (not executed directly) and do not need chmod +x
 cp .env.example .env
+chmod 600 .env
+
+# Verify the install
+bash test/run_tests.sh
+
+# Run the pipeline
+bash bin/loadout-pipeline.sh examples/sd_card.jobs
 ```
+
+The repo root is the working directory — `bin/loadout-pipeline.sh` discovers `lib/`, `adapters/`, `.env`, and `strip.list` relative to its own location, so you can invoke it from anywhere as long as the tree is intact.
+
+### 2. Single-file `.sh` deployment
+
+For servers where you don't want a git checkout (minimal appliances, embedded NAS boxes, immutable hosts) the whole pipeline can be bundled into **one** self-contained shell script:
+
+```bash
+bash build/bundle.sh
+# → dist/loadout-pipeline.sh  (executable, ~1200 lines, ~44 KB)
+scp dist/loadout-pipeline.sh user@host:/usr/local/bin/loadout-pipeline
+```
+
+The bundle concatenates `lib/`, `adapters/`, and `bin/loadout-pipeline.sh` into one file, minified (comments and blank lines stripped — no identifier mangling), and embeds `strip.list` inline. It uses a BusyBox-style multi-call pattern: the stages that must fork as real subprocesses (`extract`, `dispatch`, `precheck`, and the five adapters) re-invoke the bundle itself with an internal sentinel argument, so worker-registry PID tracking, orphan recovery, and SIGKILL handling are preserved bit-for-bit against the source tree. Usage is identical to `bin/loadout-pipeline.sh`; every documented env var works unchanged. `dist/` is gitignored — regenerate on demand.
+
+#### Installing on `PATH` (call `loadout-pipeline` from any directory)
+
+Dropping the bundled script into a directory that's already on the system `PATH` lets you invoke it as a plain command from any working directory — no `bash /full/path/to/...` required.
+
+```bash
+# System-wide (requires root) — available to every user
+sudo install -m 0755 dist/loadout-pipeline.sh /usr/local/bin/loadout-pipeline
+
+# Per-user — no root needed
+install -m 0755 dist/loadout-pipeline.sh "$HOME/.local/bin/loadout-pipeline"
+# Ensure ~/.local/bin is on PATH (bash/zsh):
+#   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+
+# Verify
+which loadout-pipeline
+loadout-pipeline ~/profiles/my_collection.jobs
+```
+
+`/usr/local/bin` is the conventional location for locally-installed executables on every mainstream distro and macOS; it's on root's and users' default `PATH` out of the box. `~/.local/bin` is the XDG per-user equivalent — on Debian 11+, Ubuntu 22.04+, Fedora, and Arch it's auto-added to `PATH` by the default login shell profile, but older distros and minimal images may need the manual `export` above.
+
+**Note the filename drops the `.sh` extension** — it's conventional for installed commands (`ls`, not `ls.sh`), and the script works either way since it's invoked by its shebang, not its suffix.
+
+##### Pitfalls and gotchas
+
+- **`.env` is no longer next to the script.** In git-checkout mode `loadout-pipeline.sh` finds `.env` relative to its own location. Once the bundle lives in `/usr/local/bin`, you almost certainly **don't** want it reading `/usr/local/bin/.env` (and shouldn't put credentials there anyway). Put your `.env` somewhere sane (`/etc/loadout-pipeline/.env` system-wide, or `~/.config/loadout-pipeline/.env` per-user), `chmod 600` it, and either `source` it in your shell before invoking or point at it explicitly — every variable documented in `.env.example` can also be set inline: `SD_MOUNT_POINT=/mnt/sd MAX_UNZIP=4 loadout-pipeline my.jobs`.
+- **Relative jobs-file paths are resolved against `$PWD`**, not the install location. `loadout-pipeline my.jobs` means "`./my.jobs` in whatever directory I'm currently `cd`'d into." Use absolute paths (`/etc/loadout-pipeline/jobs/my.jobs`) in cron / systemd / scripts where `$PWD` is unpredictable.
+- **Scratch directories default to `/tmp`.** `QUEUE_DIR`, `EXTRACT_DIR`, and `COPY_DIR` all default under `/tmp`, which on most distros is either small, `tmpfs`-backed (RAM!), or wiped on reboot. For real workloads override these to a roomy disk — e.g. `EXTRACT_DIR=/var/lib/loadout-pipeline/extract COPY_DIR=/var/lib/loadout-pipeline/copies`.
+- **Per-user `/tmp` collisions.** If two different users both run `loadout-pipeline` with default settings they'll collide in `/tmp/iso_pipeline_queue` and `/tmp/iso_pipeline_copies`. The per-run `$COPY_DIR/$$` spool isolates *runs*, not *users* — give each user their own `QUEUE_DIR` / `COPY_DIR` / `EXTRACT_DIR`, or run as a dedicated `loadout` service user.
+- **SUID / capabilities do not propagate through the shebang.** Don't try to `chmod u+s` the script to let unprivileged users write to root-owned mount points — Linux ignores setuid on interpreted scripts. Use group permissions on the mount point, or run via `sudo` / a service unit.
+- **`PATH` hijacking.** If the system also has `/usr/local/bin` **earlier** in `PATH` than a distro-packaged binary of the same name, you can shadow things unintentionally. `loadout-pipeline` isn't a name used by any known package, so this is theoretical — but if you ever rename the installed command, check `type -a <name>` first.
+- **Upgrades don't happen automatically.** Unlike the git-checkout mode (`git pull`) or the Docker image (`docker pull`), a copied `.sh` file is frozen at the moment you installed it. Re-run `bash build/bundle.sh && sudo install -m 0755 dist/loadout-pipeline.sh /usr/local/bin/loadout-pipeline` after each update, or wrap it in a small `Makefile` / shell function so you don't forget.
+- **Noexec mount points.** Some hardened systems mount `/tmp`, `/home`, or `/usr/local` with `noexec`. Check `mount | grep noexec` if you get `Permission denied` on an otherwise-executable script; install to a partition without the flag (usually `/usr/local/bin` is fine, `~/.local/bin` under a `noexec` home is not).
+- **Shell completions / man pages are not installed.** The bundle is just the executable. If you want tab-completion or `man loadout-pipeline` you'll have to write them yourself — they're not generated by the build.
+
+#### Running as a service
+
+The single-file mode is the intended input for service-manager deployment. Examples below cover the major init systems — pick the one your distro uses.
+
+**systemd** (Debian / Ubuntu / Fedora / RHEL / Rocky / AlmaLinux / Arch / openSUSE / most mainstream distros)
+
+```ini
+# /etc/systemd/system/loadout-pipeline.service
+[Unit]
+Description=Loadout pipeline — ISO unpack & dispatch
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/loadout-pipeline/.env
+ExecStart=/usr/local/bin/loadout-pipeline /etc/loadout-pipeline/jobs/my_collection.jobs
+User=loadout
+Group=loadout
+Nice=10
+IOSchedulingClass=best-effort
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo install -m 0755 dist/loadout-pipeline.sh /usr/local/bin/loadout-pipeline
+sudo install -d -m 0755 /etc/loadout-pipeline /etc/loadout-pipeline/jobs
+sudo install -m 0600 .env.example /etc/loadout-pipeline/.env   # then edit
+sudo systemctl daemon-reload
+sudo systemctl enable --now loadout-pipeline.service
+```
+
+Pair with a `loadout-pipeline.timer` unit for scheduled runs.
+
+**OpenRC** (Alpine, Gentoo, Artix)
+
+```sh
+# /etc/init.d/loadout-pipeline
+#!/sbin/openrc-run
+name="loadout-pipeline"
+command="/usr/local/bin/loadout-pipeline"
+command_args="/etc/loadout-pipeline/jobs/my_collection.jobs"
+command_user="loadout:loadout"
+command_background=false
+depend() { need net localmount; }
+```
+
+Install with `sudo rc-update add loadout-pipeline default` and trigger with `sudo rc-service loadout-pipeline start`.
+
+**runit** (Void Linux, Artix-runit)
+
+```sh
+# /etc/sv/loadout-pipeline/run
+#!/bin/sh
+exec chpst -u loadout:loadout \
+    /usr/local/bin/loadout-pipeline /etc/loadout-pipeline/jobs/my_collection.jobs
+```
+
+`sudo ln -s /etc/sv/loadout-pipeline /var/service/`
+
+**s6 / s6-rc** (Alpine with s6-overlay, Obarun) — drop an equivalent `run` script under `/etc/s6/sv/loadout-pipeline/`.
+
+**launchd** (macOS native) — place a plist at `/Library/LaunchDaemons/com.loadout.pipeline.plist` with `ProgramArguments` pointing at `/usr/local/bin/loadout-pipeline` and your jobs file.
+
+**cron** (works on every Unix) — for a cheap scheduled run without an init unit:
+
+```cron
+# /etc/cron.d/loadout-pipeline
+0 3 * * *  loadout  /usr/local/bin/loadout-pipeline /etc/loadout-pipeline/jobs/my_collection.jobs
+```
+
+### 3. Docker image deployment
+
+For hosts that already run containers — or as the zero-friction option on macOS / Windows — the included `Dockerfile` produces a production image with every runtime dependency baked in.
+
+```bash
+docker build -t loadout-pipeline .
+
+docker run --rm \
+    -v /path/to/isos:/isos:ro \
+    -v /path/to/profiles:/jobs:ro \
+    -v /mnt/sdcard:/mnt/sdcard \
+    -v /path/to/.env:/opt/loadout-pipeline/.env:ro \
+    -e SD_MOUNT_POINT=/mnt/sdcard \
+    loadout-pipeline /jobs/my_games.jobs
+```
+
+Nothing user-specific is baked into the image — archives, job profiles, and adapter credentials are all supplied at runtime via bind-mounts and environment variables. The documented env-var priority order (inline `-e` > `.env` > defaults) is preserved. See the header comment in `Dockerfile` for the full conventional mount layout (`/isos`, `/jobs`, `/mnt/sdcard`, `/tmp` for scratch). Podman works as a drop-in replacement for `docker` on Fedora / RHEL.
+
+### Parity guarantee
+
+The three modes are not alternative implementations — they are three packagings of the exact same source tree. The single-file bundler is deterministic and byte-for-byte reproducible; the Docker image copies the tree verbatim. The same `test/run_tests.sh`, `test/integration/run_integration.sh`, and `test/validate_tests.sh` suites run against each mode in CI, and each mode is expected to produce identical results for identical inputs. If you find behavior that differs between git-checkout, `dist/loadout-pipeline.sh`, and the Docker image, **that is a bug** — please file an issue.
 
 ---
 
@@ -801,6 +1037,20 @@ To validate that every assertion in the suite can actually detect a failure (57 
 ```bash
 bash test/validate_tests.sh
 ```
+
+To run the unit suite against the bundled single-file distribution instead of
+the source tree (useful for verifying a freshly built `dist/loadout-pipeline.sh`
+behaves identically):
+
+```bash
+bash build/bundle.sh
+PIPELINE="$PWD/dist/loadout-pipeline.sh" bash test/run_tests.sh
+```
+
+`test/run_tests.sh` honours a `PIPELINE` env override; when unset it defaults to
+`bin/loadout-pipeline.sh`. The test jobs file is generated at runtime from
+`$ROOT_DIR` into `/tmp` so the suite works from any clone location (WSL,
+Oracle Linux, CI) without committed absolute paths.
 
 ### Integration suite
 

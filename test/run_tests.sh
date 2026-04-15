@@ -65,6 +65,7 @@ source "$ROOT_DIR/test/suites/09_real_archive.sh"
 source "$ROOT_DIR/test/suites/10_regression.sh"
 source "$ROOT_DIR/test/suites/11_wrapper_flatten.sh"
 source "$ROOT_DIR/test/suites/12_resume_planner.sh"
+source "$ROOT_DIR/test/suites/13_prereq.sh"
 
 # ── cleanup & summary ─────────────────────────────────────────────────────────
 rm -rf "$TEST_SD_DIR"

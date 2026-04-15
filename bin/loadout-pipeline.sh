@@ -6,12 +6,16 @@ export ROOT_DIR
 
 source "$ROOT_DIR/lib/config.sh"
 source "$ROOT_DIR/lib/logging.sh"
+source "$ROOT_DIR/lib/prereq.sh"
 source "$ROOT_DIR/lib/init.sh"
 source "$ROOT_DIR/lib/jobs.sh"
 source "$ROOT_DIR/lib/queue.sh"
 source "$ROOT_DIR/lib/workers.sh"
 
 JOBS_FILE="${1:-$ROOT_DIR/examples/example.jobs}"
+
+log_info "Checking prerequisites..."
+check_prerequisites
 
 log_info "Initializing environment..."
 init_environment
