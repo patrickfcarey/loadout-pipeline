@@ -1,5 +1,6 @@
 tmp/
 logs/
+dist/
 *.swp
 *.DS_Store
 *.iso

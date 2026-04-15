@@ -10,7 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES_DIR="$ROOT_DIR/test/fixtures"
-PIPELINE="$ROOT_DIR/bin/loadout-pipeline.sh"
+PIPELINE="${PIPELINE:-$ROOT_DIR/bin/loadout-pipeline.sh}"
 EXTRACT_BASE="${EXTRACT_DIR:-/tmp/iso_pipeline}"
 
 # Generate the default test jobs file at runtime from $ROOT_DIR so the
