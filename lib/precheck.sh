@@ -35,52 +35,13 @@
 set -euo pipefail
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$ROOT_DIR/lib/logging.sh"
+source "$ROOT_DIR/lib/strip_list.sh"
 
 adapter="$1"
 archive="$2"
 dest="$3"
 
 log_trace "→ precheck.sh  adapter=$adapter  archive=$archive  dest=$dest"
-
-# ─── _precheck_is_stripped ────────────────────────────────────────────────────
-# Returns 0 (true) when the given filename appears in EXTRACT_STRIP_LIST.
-# Used by the sd precheck to exclude strip-listed members from the "all members
-# present?" check. Without this, a re-run after a successful strip would always
-# conclude the job is not done (because Vimm's Lair.txt, for example, is listed
-# in the archive but was deleted before dispatch and therefore never exists at
-# the destination), causing redundant re-extraction every time.
-#
-# Parameters
-#   $1  filename — bare filename to look up (e.g. "Vimm's Lair.txt");
-#                  matched exactly against each entry in the strip list
-#
-# Returns
-#   0 — filename is in the strip list (caller should skip the presence check)
-#   1 — filename is NOT in the strip list, OR the strip list file does not exist
-#
-# Modifies    : nothing — reads the strip list file but never writes it
-#
-# Locals
-#   filename        — $1 captured as a named local; compared against each strip entry
-#   strip_list_path — resolved path to the strip list file; uses EXTRACT_STRIP_LIST
-#                     if set, otherwise falls back to "$ROOT_DIR/strip.list"
-#   strip_name      — each line read from the strip list file; blank lines and
-#                     comment lines are skipped; trailing whitespace is trimmed
-#                     before comparison
-# ──────────────────────────────────────────────────────────────────────────────
-_precheck_is_stripped() {
-    local filename="$1"
-    local strip_list_path="${EXTRACT_STRIP_LIST:-$ROOT_DIR/strip.list}"
-    local strip_name
-    [[ -f "$strip_list_path" ]] || return 1
-    while IFS= read -r strip_name; do
-        [[ -z "$strip_name" || "$strip_name" =~ ^[[:space:]]*# ]] && continue
-        strip_name="${strip_name%"${strip_name##*[![:space:]]}"}"
-        [[ -z "$strip_name" ]] && continue
-        [[ "$filename" == "$strip_name" ]] && return 0
-    done < "$strip_list_path"
-    return 1
-}
 
 # List the archive's contents. `7z l -slt` emits multiple `Path = ...` lines;
 # the first is the archive itself, so we drop it with `tail -n +2`.
@@ -187,7 +148,7 @@ case "$adapter" in
             fi
             # Stripped files are never dispatched to the destination, so
             # their absence must not cause a false "not present" result.
-            _precheck_is_stripped "$f" && continue
+            strip_list_contains "$f" && continue
             if [[ ! -e "$local_root/$f" ]]; then
                 all_there=0
                 break

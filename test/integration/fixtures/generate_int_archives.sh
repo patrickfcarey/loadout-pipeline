@@ -114,5 +114,43 @@ CUE
     _int_pack "$ISOS_DIR/strip_target.7z" "$d"
 fi
 
+# ─── wrapper_ok.7z — single-directory wrapper around one iso ───────────────
+# Exercises the extract-stage flatten path: archive stores its payload under
+# "MyGame/game.iso", extract.sh must lift the contents up one level before
+# dispatch. Keeps one .iso so suite assertions can pattern-match by name.
+if _int_need_archive "$ISOS_DIR/wrapper_ok.7z"; then
+    d="$SOURCES_DIR/wrapper_ok"
+    mkdir -p "$d"; rm -rf "$d"/*
+    mkdir -p "$d/MyGame"
+    _int_random_iso "$d/MyGame/wrapper_ok.iso" $(( 512 * 1024 ))
+    _int_pack "$ISOS_DIR/wrapper_ok.7z" "$d"
+fi
+
+# ─── wrapper_strip.7z — wrapper dir + Vimm's Lair.txt at top level ─────────
+# Pre-flatten strip pass must remove the top-level Vimm's Lair.txt so the
+# remaining single wrapper directory can be flattened unambiguously.
+if _int_need_archive "$ISOS_DIR/wrapper_strip.7z"; then
+    d="$SOURCES_DIR/wrapper_strip"
+    mkdir -p "$d"; rm -rf "$d"/*
+    mkdir -p "$d/MyGame"
+    _int_random_iso "$d/MyGame/wrapper_strip.iso" $(( 512 * 1024 ))
+    printf 'Ripped by Vimms Lair\n' > "$d/Vimm's Lair.txt"
+    _int_pack "$ISOS_DIR/wrapper_strip.7z" "$d"
+fi
+
+# ─── wrapper_ambig.7z — wrapper dir + unrelated loose file ─────────────────
+# Ambiguity case: after the strip pass the top level still has both a
+# wrapper dir AND a loose file, so extract.sh must refuse to flatten and
+# fail this job. Unit tests cover the same logic; the integration suite
+# verifies the behaviour holds end-to-end against real substrates.
+if _int_need_archive "$ISOS_DIR/wrapper_ambig.7z"; then
+    d="$SOURCES_DIR/wrapper_ambig"
+    mkdir -p "$d"; rm -rf "$d"/*
+    mkdir -p "$d/MyGame"
+    _int_random_iso "$d/MyGame/wrapper_ambig.iso" $(( 512 * 1024 ))
+    printf 'unrelated sibling\n' > "$d/unrelated.dat"
+    _int_pack "$ISOS_DIR/wrapper_ambig.7z" "$d"
+fi
+
 echo "[int-fix] archives ready in $ISOS_DIR/"
 ls -lh "$ISOS_DIR" | sed 's/^/[int-fix]   /'

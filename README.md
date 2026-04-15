@@ -22,7 +22,7 @@ It supports **parallel extraction**, **bounded queues**, **pluggable adapters**,
 
 ## Quickstart
 
-A **profile** (also called a job file) is a plain text file with one job per line — it tells the pipeline which archives to process and where to send them. You can keep as many profiles as you like anywhere on disk and switch between them just by changing the argument.
+A **jobs file** is a plain text file with one job per line — it tells the pipeline which archives to process and where to send them. A **profile** is a directory on disk that holds one or more jobs files, so you can group related jobs (e.g. a shared `base.jobs` plus per-user `alice.jobs` / `bob.jobs`) and pick whichever set you need. The pipeline accepts either a single jobs file **or** a profile directory as its argument — passing a profile loads every `*.jobs` file inside it.
 
 ```bash
 # 1. One-time setup
@@ -45,8 +45,7 @@ MAX_UNZIP=6 EXTRACT_DIR=/mnt/nvme/extract COPY_DIR=/mnt/nvme/scratch \
     bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
 ```
 
-The first argument to `loadout-pipeline.sh` is always the path to a profile file.
-If no argument is given, `examples/example.jobs` is used as the default.
+The first argument to `loadout-pipeline.sh` is the path to a **jobs file** or a **profile directory**. If no argument is given, `examples/example.jobs` is used as the default.
 
 ---
 
@@ -145,40 +144,39 @@ MAX_UNZIP=4 bash bin/loadout-pipeline.sh examples/sd_card.jobs
 ## Usage
 
 ```
-bash bin/loadout-pipeline.sh [profile]
+bash bin/loadout-pipeline.sh [jobs_file_or_profile]
 ```
 
-The first argument is the path to a **profile** (job file). If omitted, `examples/example.jobs` is used as the default.
+The first argument is the path to a **jobs file** or a **profile directory**. If omitted, `examples/example.jobs` is used as the default.
 
-### Profile paths
+### Jobs files vs. profiles
 
-A profile is a plain text file — it can live anywhere on disk. Pass the path as the first argument.
+A **jobs file** is a single plain-text file with one job per line. A **profile** is a directory that holds one or more jobs files — a convenient way to keep related sets together (for example, a shared `base.jobs` plus per-user overrides like `alice.jobs` and `bob.jobs` for two people sharing the same Steam Deck setup but with divergent game tastes). Both forms can live anywhere on disk; pass the path as the first argument.
 
 ```bash
 # No argument — uses examples/example.jobs
 bash bin/loadout-pipeline.sh
 
-# Built-in example profiles
+# Single jobs file (built-in examples)
 bash bin/loadout-pipeline.sh examples/sd_card.jobs
 bash bin/loadout-pipeline.sh examples/ftp_server.jobs
 bash bin/loadout-pipeline.sh examples/mixed.jobs
 
-# Absolute path on disk
-bash bin/loadout-pipeline.sh /home/alice/profiles/ps1.jobs
+# Single jobs file by absolute path
+bash bin/loadout-pipeline.sh /home/alice/profiles/ps1/weekend.jobs
 bash bin/loadout-pipeline.sh /mnt/nas/loadout/ps2_collection.jobs
 
-# Path relative to the current working directory
-bash bin/loadout-pipeline.sh ~/profiles/weekend_batch.jobs
-bash bin/loadout-pipeline.sh profiles/small_games.jobs
+# Profile directory — every *.jobs file inside is loaded alphabetically
+bash bin/loadout-pipeline.sh ~/profiles/steamdeck/
+bash bin/loadout-pipeline.sh /mnt/nas/loadout/ps2/
 ```
 
-The argument must be a **file path to a readable file**. Passing a directory, a nonexistent path, or an unreadable file causes the job loader to fail with an error.
+The argument must be a readable jobs file **or** a readable directory containing at least one `*.jobs` file. A nonexistent path, an unreadable file, or an empty directory causes the job loader to fail with an error.
 
 ```bash
 # NOT accepted — these all cause a startup error
-bash bin/loadout-pipeline.sh ~/profiles/          # directory, not a file
-bash bin/loadout-pipeline.sh examples/            # directory, not a file
 bash bin/loadout-pipeline.sh /tmp/missing.jobs    # file does not exist
+bash bin/loadout-pipeline.sh ~/empty_profile/     # directory with no *.jobs files
 ```
 
 ### Variable priority order
@@ -554,7 +552,7 @@ docker build -t loadout-pipeline .
 | Mount path inside container | Purpose |
 |-----------------------------|---------|
 | `/isos` | Read-only source archives — reference these paths in `.jobs` files |
-| `/jobs` | Read-only job profiles — `.jobs` file or directory of `.jobs` files |
+| `/jobs` | Read-only mount for a single `.jobs` file or a profile directory of `.jobs` files |
 | `/mnt/sdcard` | Writable SD card destination (`SD_MOUNT_POINT` default) |
 | `/opt/loadout-pipeline/.env` | Optional credentials file (bind-mount, never bake in) |
 
@@ -628,9 +626,9 @@ docker run --rm \
   loadout-pipeline /jobs/rsync.jobs
 ```
 
-### Directory profile
+### Profile directory
 
-Pass a directory instead of a single file — every `*.jobs` file inside is loaded alphabetically:
+Pass a profile directory instead of a single jobs file — every `*.jobs` file inside is loaded alphabetically:
 
 ```bash
 docker run --rm \
@@ -640,7 +638,7 @@ docker run --rm \
   loadout-pipeline /jobs/
 ```
 
-### Default profile (no argument)
+### Default jobs file (no argument)
 
 Omit the argument to run the built-in `examples/example.jobs`:
 
@@ -682,7 +680,7 @@ docker run --rm \
 
 ---
 
-## Job File Format
+## Jobs File Format
 
 Each line must start and end with `~`, with the three fields separated by `|`:
 
@@ -716,7 +714,7 @@ Example — all five adapters in one file:
 ~/isos/pc/doom.7z|rsync|games/pc/doom~
 ```
 
-Blank lines and lines starting with `#` are ignored, so you can annotate profiles freely:
+Blank lines and lines starting with `#` are ignored, so you can annotate jobs files freely:
 
 ```
 # PS1 titles — SD card slot 1
@@ -770,7 +768,7 @@ To use a different file, set `EXTRACT_STRIP_LIST=/path/to/your.list` in `.env` o
 
 ## Security considerations
 
-- **The pipeline trusts its `.env` and its job file — treat both as code.** Do not point the pipeline at profiles from untrusted sources. The job-line validator rejects shell metacharacters and `..` path traversal, but a job file is ultimately an instruction list and should be controlled by you.
+- **The pipeline trusts its `.env` and its jobs files — treat both as code.** Do not point the pipeline at jobs files or profile directories from untrusted sources. The job-line validator rejects shell metacharacters and `..` path traversal, but a jobs file is ultimately an instruction list and should be controlled by you.
 - **Do not run as root.** The FTP and HDL adapters may require elevated access to block devices; in those cases, run as a dedicated service user with the minimum required permissions, not as the superuser.
 - **Default scratch paths are under `/tmp`, which is world-writable.** For production use, override `QUEUE_DIR`, `EXTRACT_DIR`, and `COPY_DIR` to paths you own with mode `0700`:
   ```bash

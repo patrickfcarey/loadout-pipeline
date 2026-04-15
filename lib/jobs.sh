@@ -49,8 +49,30 @@ load_jobs() {
     log_enter
     local file="$1"
 
+    # Directory profile: load every *.jobs file inside, in sorted order.
+    # JOBS is global, so the recursive calls append into the same array the
+    # caller reads afterwards. Sort guarantees deterministic ordering across
+    # filesystems whose readdir order is not stable.
+    if [[ -d "$file" ]]; then
+        local _dir_entry _dir_files=()
+        while IFS= read -r -d '' _dir_entry; do
+            _dir_files+=("$_dir_entry")
+        done < <(find "$file" -maxdepth 1 -type f -name '*.jobs' -print0 | sort -z)
+
+        if [[ ${#_dir_files[@]} -eq 0 ]]; then
+            log_error "no .jobs files found in directory: $file"
+            return 1
+        fi
+
+        local _jf
+        for _jf in "${_dir_files[@]}"; do
+            load_jobs "$_jf" || return 1
+        done
+        return 0
+    fi
+
     if [[ ! -f "$file" ]]; then
-        log_error "job file not found: $file"
+        log_error "job file or directory not found: $file"
         return 1
     fi
 

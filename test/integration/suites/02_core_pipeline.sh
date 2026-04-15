@@ -120,3 +120,124 @@ if [[ -d "$INT_QUEUE/t4" ]]; then
         fail "Test 4 queue has $leftover leftover entries"
     fi
 fi
+
+# ─── Test 4b: directory profile (dir of *.jobs files) ──────────────────────
+#
+# Exercise full-directory profile support end-to-end against real substrates.
+# Split the job set across two *.jobs files inside a directory and pass the
+# directory path as the pipeline argument. All entries from all files must
+# be processed exactly as if they had been concatenated into one file.
+
+header "Int Test 4b: directory profile (dir passed instead of .jobs file)"
+
+T4B_DIR="$INT_STATE/t4b_jobsdir"
+T4B_EXTRACT="$INT_EXTRACT/t4b"
+rm -rf "$T4B_DIR" "$T4B_EXTRACT" "$INT_SD_VFAT/t4b"
+mkdir -p "$T4B_DIR" "$T4B_EXTRACT"
+
+# Two halves of the job set in two separate files — both must be loaded.
+_int_make_jobs "$T4B_DIR/a_small.jobs" \
+    "$INT_FIXTURES/small.7z|sd|t4b/small"
+_int_make_jobs "$T4B_DIR/b_medium.jobs" \
+    "$INT_FIXTURES/medium.7z|sd|t4b/medium"
+# A non-.jobs sibling must be ignored by the directory loader.
+echo "ignored" > "$T4B_DIR/notes.txt"
+
+set +e
+EXTRACT_DIR="$T4B_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4b" \
+SD_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$T4B_DIR" >"$INT_STATE/t4b.log" 2>&1
+t4b_rc=$?
+set -e
+
+assert_rc "$t4b_rc" 0 "Test 4b pipeline rc (directory profile)"
+assert_file_present "$INT_SD_VFAT/t4b/small/small.iso"   "Test 4b SD small"
+assert_file_present "$INT_SD_VFAT/t4b/medium/medium.iso" "Test 4b SD medium"
+
+# Negative: empty directory must fail load_jobs, not silently succeed.
+T4B_EMPTY="$INT_STATE/t4b_empty"
+rm -rf "$T4B_EMPTY"; mkdir -p "$T4B_EMPTY"
+set +e
+EXTRACT_DIR="$T4B_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4b_empty" \
+SD_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$T4B_EMPTY" >"$INT_STATE/t4b_empty.log" 2>&1
+t4b_empty_rc=$?
+set -e
+if (( t4b_empty_rc != 0 )); then
+    pass "Test 4b empty directory profile rejected"
+else
+    fail "Test 4b empty directory profile was NOT rejected"
+fi
+
+# ─── Test 4c: single-directory wrapper flatten (extract stage) ─────────────
+#
+# Exercises the wrapper-flatten path in lib/extract.sh end-to-end against
+# the real vfat SD substrate. Three scenarios packed into one scenario:
+#
+#   wrapper_ok.7z     — "MyGame/wrapper_ok.iso" wrapper → flatten → iso lands
+#                       at the top level of the dispatch destination.
+#   wrapper_strip.7z  — "MyGame/wrapper_strip.iso" + top-level Vimm's Lair.txt
+#                       → pre-flatten strip removes the .txt, flatten lifts
+#                       the iso. Tests strip-before-flatten ordering.
+#   wrapper_ambig.7z  — "MyGame/wrapper_ambig.iso" + top-level unrelated.dat
+#                       → ambiguity: flatten must refuse, this job must fail,
+#                       but the two good jobs on the same run must still
+#                       dispatch. Tests the fail-and-continue contract.
+
+header "Int Test 4c: wrapper-directory flatten on real substrate"
+
+T4C_JOBS="$INT_STATE/t4c.jobs"
+T4C_EXTRACT="$INT_EXTRACT/t4c"
+rm -rf "$T4C_EXTRACT" "$INT_SD_VFAT/t4c"
+mkdir -p "$T4C_EXTRACT"
+
+_int_make_jobs "$T4C_JOBS" \
+    "$INT_FIXTURES/wrapper_ok.7z|sd|t4c/ok" \
+    "$INT_FIXTURES/wrapper_strip.7z|sd|t4c/strip" \
+    "$INT_FIXTURES/wrapper_ambig.7z|sd|t4c/ambig"
+
+T4C_LOG="$INT_STATE/t4c.log"
+set +e
+EXTRACT_DIR="$T4C_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4c" \
+SD_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$T4C_JOBS" >"$T4C_LOG" 2>&1
+t4c_rc=$?
+set -e
+
+# Overall rc must be non-zero because wrapper_ambig fails permanently.
+if (( t4c_rc != 0 )); then
+    pass "Test 4c pipeline reported failure for ambiguous wrapper (rc=$t4c_rc)"
+else
+    fail "Test 4c pipeline returned 0 despite ambiguous wrapper job"
+fi
+
+# wrapper_ok: iso must land at top level of the dispatch dir, and the
+# "MyGame" wrapper name must NOT appear on disk anywhere beneath it.
+assert_file_present "$INT_SD_VFAT/t4c/ok/wrapper_ok.iso" \
+    "Test 4c wrapper_ok flattened onto vfat"
+if [[ ! -e "$INT_SD_VFAT/t4c/ok/MyGame" ]]; then
+    pass "Test 4c wrapper_ok: 'MyGame' wrapper dir absent under dispatch tree"
+else
+    fail "Test 4c wrapper_ok: 'MyGame' wrapper dir still present"
+fi
+
+# wrapper_strip: iso present, Vimm's Lair.txt absent (strip-before-flatten).
+assert_file_present "$INT_SD_VFAT/t4c/strip/wrapper_strip.iso" \
+    "Test 4c wrapper_strip flattened onto vfat"
+if [[ ! -e "$INT_SD_VFAT/t4c/strip/Vimm's Lair.txt" ]]; then
+    pass "Test 4c wrapper_strip: strip-list file removed pre-flatten"
+else
+    fail "Test 4c wrapper_strip: Vimm's Lair.txt leaked to dispatch destination"
+fi
+
+# wrapper_ambig: NOTHING at the destination, and a flatten error in the log.
+if [[ ! -e "$INT_SD_VFAT/t4c/ambig" ]]; then
+    pass "Test 4c wrapper_ambig: ambiguous job did NOT dispatch"
+else
+    fail "Test 4c wrapper_ambig: unexpected content at $INT_SD_VFAT/t4c/ambig"
+fi
+if grep -F "cannot flatten wrapper for 'wrapper_ambig'" "$T4C_LOG" >/dev/null; then
+    pass "Test 4c wrapper_ambig: flatten error logged"
+else
+    fail "Test 4c wrapper_ambig: expected flatten error in pipeline log"
+fi

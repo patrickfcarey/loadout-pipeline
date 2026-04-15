@@ -19,8 +19,12 @@ CUSTOM_EXTRACT7="/tmp/iso_pipeline_test_extract7_$$"
 TEST_LOG="/tmp/iso_pipeline_test7_$$.log"
 mkdir -p "$CUSTOM_SD/games/game3"
 printf 'pre-existing stub iso\n' > "$CUSTOM_SD/games/game3/game3.iso"
-echo "  cmd: SD_MOUNT_POINT=$CUSTOM_SD EXTRACT_DIR=$CUSTOM_EXTRACT7 bash bin/loadout-pipeline.sh test/example.jobs"
-SD_MOUNT_POINT="$CUSTOM_SD" EXTRACT_DIR="$CUSTOM_EXTRACT7" \
+# Disable the resume planner so this test exercises the precheck skip path
+# directly. The planner would otherwise drop the satisfied job upstream and
+# the [skip] log line below would never appear. Test 12A covers the
+# planner-enabled equivalent; see test/suites/12_resume_planner.sh.
+echo "  cmd: RESUME_PLANNER_IND=0 SD_MOUNT_POINT=$CUSTOM_SD EXTRACT_DIR=$CUSTOM_EXTRACT7 bash bin/loadout-pipeline.sh test/example.jobs"
+RESUME_PLANNER_IND=0 SD_MOUNT_POINT="$CUSTOM_SD" EXTRACT_DIR="$CUSTOM_EXTRACT7" \
     bash "$PIPELINE" "$TEST_JOBS" >"$TEST_LOG" 2>&1 || true
 
 if grep -E '^\[skip\].*game3\.7z.*already exists at destination' "$TEST_LOG" >/dev/null; then
@@ -83,8 +87,12 @@ mkdir -p "$MULTI_SD/games/game4"
 printf 'prepopulated bin\n' > "$MULTI_SD/games/game4/game4.bin"
 printf 'prepopulated cue\n' > "$MULTI_SD/games/game4/game4.cue"
 echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|sd|games/game4~" > "$MULTI_JOBS9"
-echo "  cmd: SD_MOUNT_POINT=$MULTI_SD EXTRACT_DIR=$MULTI_EXTRACT9 bash bin/loadout-pipeline.sh $MULTI_JOBS9"
-SD_MOUNT_POINT="$MULTI_SD" EXTRACT_DIR="$MULTI_EXTRACT9" \
+# Disable the resume planner so this test exercises precheck directly on a
+# fully-satisfied multi-file archive. Test 12A covers the planner-enabled
+# equivalent for single-file archives; the multi-file planner path is
+# exercised by Test 12C's partial-hit companion.
+echo "  cmd: RESUME_PLANNER_IND=0 SD_MOUNT_POINT=$MULTI_SD EXTRACT_DIR=$MULTI_EXTRACT9 bash bin/loadout-pipeline.sh $MULTI_JOBS9"
+RESUME_PLANNER_IND=0 SD_MOUNT_POINT="$MULTI_SD" EXTRACT_DIR="$MULTI_EXTRACT9" \
     bash "$PIPELINE" "$MULTI_JOBS9" >"$MULTI_LOG9" 2>&1 || true
 
 if grep -E '^\[skip\].*game4\.7z.*already exists at destination' "$MULTI_LOG9" >/dev/null; then

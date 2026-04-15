@@ -16,7 +16,11 @@ JOBS_FILE="${1:-$ROOT_DIR/examples/example.jobs}"
 log_info "Initializing environment..."
 init_environment
 
-log_info "Loading jobs from $JOBS_FILE..."
+if [[ -d "$JOBS_FILE" ]]; then
+    log_info "Loading jobs from directory $JOBS_FILE (all *.jobs files)..."
+else
+    log_info "Loading jobs from $JOBS_FILE..."
+fi
 load_jobs "$JOBS_FILE"
 
 log_info "Starting pipeline..."

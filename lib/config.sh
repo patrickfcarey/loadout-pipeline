@@ -46,6 +46,12 @@ fi
 # Fallback defaults if neither .env nor the caller provided a value.
 # Pipeline core
 export DEBUG_IND="${DEBUG_IND:-0}"
+# Resume planner: 1 = run the cold-restart fast-path pre-pass, 0 = bypass.
+# When enabled, lib/resume_planner.sh runs once between _pipeline_run_init
+# and the JOBS enqueue loop, dropping jobs whose content is already fully
+# present at the adapter destination. When disabled, every job falls through
+# to the per-job precheck — useful for forced full re-verification.
+export RESUME_PLANNER_IND="${RESUME_PLANNER_IND:-1}"
 export MAX_UNZIP="${MAX_UNZIP:-2}"
 export MAX_DISPATCH="${MAX_DISPATCH:-2}"
 # QUEUE_DIR is the parent dir that holds both sub-queues.

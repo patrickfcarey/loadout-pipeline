@@ -83,3 +83,40 @@ echo "  cmd: EXTRACT_DIR=$CUSTOM_EXTRACT SD_MOUNT_POINT=$CUSTOM_SD6 bash bin/loa
 EXTRACT_DIR="$CUSTOM_EXTRACT" SD_MOUNT_POINT="$CUSTOM_SD6" bash "$PIPELINE" "$TEST_JOBS"
 assert_all_extracted "$CUSTOM_EXTRACT"
 rm -rf "$CUSTOM_EXTRACT" "$CUSTOM_SD6"
+
+# ── test 7: directory profile (all *.jobs files in a dir) ────────────────────
+#
+# Passing a directory instead of a single jobs file must cause load_jobs to
+# enumerate every *.jobs file in it (sorted, top-level only) and concatenate
+# their contents into JOBS[]. Verifies full-directory profile support end to
+# end through the pipeline entry point.
+
+header "Test 7: directory profile (pass a dir instead of a .jobs file)"
+T7_DIR="/tmp/iso_pipeline_test_jobsdir_$$"
+mkdir -p "$T7_DIR"
+# Split example.jobs into two files inside the dir. Each half contains only
+# some of the jobs; only reading both gives the full set the assertions expect.
+grep -v '^#' "$TEST_JOBS" | grep -v '^$' > "$T7_DIR/all.jobs.tmp"
+head -n 2 "$T7_DIR/all.jobs.tmp" > "$T7_DIR/a_first.jobs"
+tail -n +3 "$T7_DIR/all.jobs.tmp" > "$T7_DIR/b_rest.jobs"
+rm -f "$T7_DIR/all.jobs.tmp"
+# A non-.jobs file must be ignored by the directory loader.
+echo "this file must be ignored" > "$T7_DIR/README.txt"
+
+echo "  cmd: bash bin/loadout-pipeline.sh $T7_DIR"
+clean_extracts
+assert_clean_slate
+bash "$PIPELINE" "$T7_DIR"
+assert_all_extracted
+
+# Negative: an empty directory (no *.jobs files) must fail load_jobs.
+T7_EMPTY="/tmp/iso_pipeline_test_emptydir_$$"
+mkdir -p "$T7_EMPTY"
+echo "  cmd: bash bin/loadout-pipeline.sh $T7_EMPTY   (expected to fail)"
+if bash "$PIPELINE" "$T7_EMPTY" >/dev/null 2>&1; then
+    fail "Test 7 empty directory profile was NOT rejected"
+else
+    pass "Test 7 empty directory profile rejected"
+fi
+
+rm -rf "$T7_DIR" "$T7_EMPTY"

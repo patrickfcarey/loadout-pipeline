@@ -88,6 +88,8 @@ source "$INT_ROOT/suites/10_regression.sh"
 source "$INT_ROOT/suites/11_negative.sh"
 # shellcheck source=/dev/null
 source "$INT_ROOT/suites/12_docker_pipeline.sh"
+# shellcheck source=/dev/null
+source "$INT_ROOT/suites/13_resume_planner.sh"
 
 # ── summary ──────────────────────────────────────────────────────────────────
 _print_summary

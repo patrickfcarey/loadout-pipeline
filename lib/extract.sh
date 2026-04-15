@@ -216,41 +216,133 @@ echo "[extract] Extracting $copy → $out_dir"
 # Scratch copy served its purpose — delete it before we queue up dispatch.
 rm -f "$copy"
 _copy_path=""
-# Successful extract: clear out_dir from the trap's cleanup list so a
-# post-success failure (unlikely, but e.g. dispatch queue push) doesn't
-# wipe the very content we just extracted.
-_out_dir=""
+# _out_dir remains armed for cleanup through strip + flatten: a failure in
+# any of those post-extract passes leaves an unusable partial tree we want
+# the EXIT trap to wipe. It is cleared to "" right before queue_push below.
 
-# ── 6. Strip unwanted files from the extracted directory ─────────────────
-# Reads EXTRACT_STRIP_LIST (default: $ROOT_DIR/strip.list) for plain
-# filenames to delete. Runs after successful extraction so stripped files
-# are never dispatched to the adapter destination.
+# ── 6a. Strip unwanted files (top level, pre-flatten) ────────────────────
+# Runs before flatten so strip-list entries that sit alongside a wrapper
+# directory (classic "game_dir/ + Vimm's Lair.txt" pattern) are removed
+# first — otherwise they would count as extra top-level files and force
+# _maybe_flatten_wrapper to bail out.
 #
-# Only bare filenames are supported — entries containing '/' are skipped
-# with a warning so the strip list cannot reference files outside $out_dir.
-# Strip failures are non-fatal: a missing list or unremovable file does not
-# abort the pipeline run.
-_strip_list_path="${EXTRACT_STRIP_LIST:-$ROOT_DIR/strip.list}"
-if [[ -f "$_strip_list_path" ]]; then
-    while IFS= read -r _strip_filename; do
-        # Skip blank lines and full-line comments.
-        [[ -z "$_strip_filename" || "$_strip_filename" =~ ^[[:space:]]*# ]] && continue
-        # Trim trailing whitespace (editor line-ending artifacts).
-        _strip_filename="${_strip_filename%"${_strip_filename##*[![:space:]]}"}"
-        [[ -z "$_strip_filename" ]] && continue
-        # Reject paths: only bare filenames are valid strip-list entries.
-        if [[ "$_strip_filename" == */* ]]; then
-            log_warn "extract: strip list entry contains '/'; only bare filenames are supported — skipping: $_strip_filename"
+# _strip_pass reads EXTRACT_STRIP_LIST (default: $ROOT_DIR/strip.list)
+# and deletes any matching plain filenames found directly in the given
+# directory. Only bare filenames are supported — entries containing '/'
+# are skipped with a warning so the strip list cannot reference files
+# outside the target directory. Strip failures are non-fatal: a missing
+# list or unremovable file does not abort the pipeline run.
+_strip_pass() {
+    local target_dir="$1"
+    local strip_list_path="${EXTRACT_STRIP_LIST:-$ROOT_DIR/strip.list}"
+    [[ -f "$strip_list_path" ]] || return 0
+    local strip_filename strip_target
+    while IFS= read -r strip_filename; do
+        [[ -z "$strip_filename" || "$strip_filename" =~ ^[[:space:]]*# ]] && continue
+        strip_filename="${strip_filename%"${strip_filename##*[![:space:]]}"}"
+        [[ -z "$strip_filename" ]] && continue
+        if [[ "$strip_filename" == */* ]]; then
+            log_warn "extract: strip list entry contains '/'; only bare filenames are supported — skipping: $strip_filename"
             continue
         fi
-        _strip_target="$out_dir/$_strip_filename"
-        if [[ -f "$_strip_target" ]]; then
-            log_trace "extract: stripping '$_strip_filename' from $(basename "$out_dir")"
-            echo "[extract] Stripping '$_strip_filename'"
-            rm -f -- "$_strip_target" || log_warn "extract: failed to remove '$_strip_target'"
+        strip_target="$target_dir/$strip_filename"
+        if [[ -f "$strip_target" ]]; then
+            log_trace "extract: stripping '$strip_filename' from $(basename "$target_dir")"
+            echo "[extract] Stripping '$strip_filename'"
+            rm -f -- "$strip_target" || log_warn "extract: failed to remove '$strip_target'"
         fi
-    done < "$_strip_list_path"
+    done < "$strip_list_path"
+}
+_strip_pass "$out_dir"
+
+# ── 6b. Flatten single-directory wrapper, if present ─────────────────────
+# Some 7z archives store their payload under a single top-level directory
+# (e.g. "MyGame/game.iso" instead of "game.iso"). Dispatch expects the
+# payload to live directly in $out_dir, so if — after the pre-flatten
+# strip pass above — the only thing inside $out_dir is exactly one
+# directory, lift its contents up one level and remove the now-empty
+# wrapper. Then re-run strip so any strip-list entries that lived INSIDE
+# the wrapper are also cleaned.
+#
+# Ambiguity policy: if $out_dir contains more than one directory, or any
+# mix of files AND directories at the top level, the correct payload is
+# undecidable from file listings alone. Log an error and return non-zero
+# so extract.sh exits non-zero and unzip_worker moves on to the next job
+# in the queue (the existing worker fail-and-continue behaviour).
+_maybe_flatten_wrapper() {
+    local dir="$1"
+    local entries=() entry
+    while IFS= read -r -d '' entry; do
+        entries+=("$entry")
+    done < <(find "$dir" -mindepth 1 -maxdepth 1 -print0)
+
+    local n=${#entries[@]}
+    (( n == 0 )) && return 0
+
+    local dir_count=0 file_count=0 wrapper=""
+    for entry in "${entries[@]}"; do
+        if [[ -L "$entry" ]]; then
+            # A top-level symlink is neither a clean wrapper nor a clean
+            # payload file; it could redirect a later mv outside $out_dir.
+            (( file_count++ )) || true
+        elif [[ -d "$entry" ]]; then
+            (( dir_count++ )) || true
+            wrapper="$entry"
+        else
+            (( file_count++ )) || true
+        fi
+    done
+
+    # No directory at the top level → archive stores its payload as loose
+    # files directly (e.g. .bin + .cue pair). Nothing to flatten.
+    if (( dir_count == 0 )); then
+        return 0
+    fi
+
+    # Wrapper directory plus ANY other entry (another directory, a loose
+    # file, or a symlink) → ambiguous. Strip has already run once, so the
+    # extras here are not strip-list cruft; we cannot guess which set is
+    # the real payload.
+    if (( dir_count > 1 || file_count > 0 )); then
+        log_error "extract: cannot flatten wrapper for '$(basename "$dir")' — top level has $dir_count directories and $file_count non-directory entries; skipping this job"
+        return 1
+    fi
+
+    # Exactly one directory, nothing else → lift its contents up one level.
+    log_info "extract: flattening single-directory wrapper '$(basename "$wrapper")' into '$(basename "$dir")'"
+    echo "[extract] Flattening wrapper '$(basename "$wrapper")'"
+
+    local inner
+    # Enable dotglob so hidden files inside the wrapper come along. Use a
+    # subshell to localise the shopt change and avoid leaking state.
+    (
+        shopt -s dotglob nullglob
+        for inner in "$wrapper"/*; do
+            # A member name collision with something already at the top
+            # level is impossible here because the pre-flatten check
+            # confirmed $dir contained exactly one entry ($wrapper).
+            mv -- "$inner" "$dir/"
+        done
+    )
+
+    rmdir "$wrapper" || {
+        log_error "extract: failed to remove emptied wrapper dir $wrapper"
+        return 1
+    }
+    return 0
+}
+
+if ! _maybe_flatten_wrapper "$out_dir"; then
+    exit 1
 fi
+
+# ── 6c. Strip again (post-flatten, for files that lived inside wrapper) ──
+_strip_pass "$out_dir"
+
+# Post-success: clear out_dir from the trap's cleanup list so a later
+# failure in the dispatch-queue push does not wipe the freshly prepared
+# content we are about to hand off.
+_out_dir=""
 
 # ── 7. Push onto the dispatch queue ───────────────────────────────────────
 queue_push "$DISPATCH_QUEUE_DIR" "~${out_dir}|${adapter}|${dest}~"

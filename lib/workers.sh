@@ -2,6 +2,7 @@
 # sourced by bin/loadout-pipeline.sh — do not execute directly
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$ROOT_DIR/lib/job_format.sh"
+source "$ROOT_DIR/lib/resume_planner.sh"
 #
 # Two worker pools draining two queues:
 #
@@ -309,6 +310,12 @@ workers_start() {
     # caught it (and even then only if the reused PID weren't alive).
     # shellcheck disable=SC2064  # intentional early expansion of $COPY_SPOOL
     trap "_spool_guarded_rm_rf '$COPY_SPOOL'" EXIT
+
+    # Resume planner: drop jobs whose content is already fully present at the
+    # adapter destination before any worker forks. Runs in the quiescent
+    # window between _pipeline_run_init and the enqueue loop, so the
+    # destination cannot change underfoot. Disabled path is a no-op.
+    resume_plan
 
     local job
     for job in "${JOBS[@]}"; do
