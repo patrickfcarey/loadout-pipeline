@@ -85,6 +85,23 @@ trap '
     rm -rf "'"$INT_HOST_SCRATCH"'"
 ' EXIT
 
+# ── detect Docker/Podman socket path ─────────────────────────────────────────
+# Docker uses /var/run/docker.sock. Podman uses a user or system socket at a
+# different path. Detect whichever exists so suite 12 (DinD) can bind-mount it
+# into the integration container. If no socket is found, suite 12 will skip
+# gracefully via its internal guard rather than crashing the whole run.
+if [[ -S "/var/run/docker.sock" ]]; then
+    DOCKER_SOCK="/var/run/docker.sock"
+elif [[ -S "/run/user/$(id -u)/podman/podman.sock" ]]; then
+    DOCKER_SOCK="/run/user/$(id -u)/podman/podman.sock"
+elif [[ -S "/run/podman/podman.sock" ]]; then
+    DOCKER_SOCK="/run/podman/podman.sock"
+else
+    DOCKER_SOCK=""
+    echo "[launch] WARNING: no Docker/Podman socket found; suite 12 (DinD) will skip"
+    echo "[launch]          To enable: systemctl --user enable --now podman.socket"
+fi
+
 echo "[launch] running integration suite (privileged) …"
 
 # --privileged   loop devices, mount, mkfs.vfat all need CAP_SYS_ADMIN.
@@ -100,13 +117,18 @@ echo "[launch] running integration suite (privileged) …"
 # Dockerfile already baked it in. Bind-mounting makes the suite sensitive
 # to host FS quirks (CRLF, permissions) which we explicitly want to
 # insulate against.
+SOCK_ARGS=()
+if [[ -n "$DOCKER_SOCK" ]]; then
+    SOCK_ARGS=(-v "$DOCKER_SOCK:/var/run/docker.sock")
+fi
+
 set +e
 "$DOCKER" run \
     --rm \
     --privileged \
     --init \
     --tmpfs /tmp \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+    "${SOCK_ARGS[@]}" \
     -v "$INT_HOST_SCRATCH:/scratch" \
     -e PROD_IMAGE="$PROD_IMAGE_TAG" \
     -e INT_HOST_SCRATCH="$INT_HOST_SCRATCH" \

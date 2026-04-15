@@ -1,0 +1,24 @@
+# Dockerfile.dockerignore
+#
+# Applied by Podman/Docker BuildKit when building the production image
+# (docker build -f Dockerfile ...). The integration image uses
+# test/integration/Dockerfile which gets its own ignore rules — this file
+# does NOT apply to that build.
+#
+# Excludes test infrastructure and credentials from the production image.
+
+# Git history
+.git
+.gitattributes
+
+# Credentials — never bake these in; bind-mount at runtime instead
+.env
+
+# Test infrastructure (not needed at runtime)
+test/
+
+# Editor and OS artifacts
+.DS_Store
+*.swp
+*.swo
+Thumbs.db

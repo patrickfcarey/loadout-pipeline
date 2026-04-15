@@ -16,15 +16,17 @@ _int_need_cmd() {
 }
 
 for cmd in 7z losetup mount umount mkfs.vfat realpath sha256sum flock \
-           pgrep awk sed find stat dd ssh-keygen pure-ftpd rclone rsync; do
+           pgrep awk sed find stat dd ssh-keygen rclone rsync; do
     _int_need_cmd "$cmd"
 done
 
 header "Int Test 1b: substrate readiness"
 
 # Bootstrap should have exported every INT_* path and mounted every tmpfs.
+# NOTE: INT_FTP_ROOT is intentionally omitted — the FTP adapter is a stub
+# and pure-ftpd is not provisioned. Add it back when the real adapter lands.
 for var in INT_STATE INT_EXTRACT INT_SCARCE INT_QUEUE INT_SD_VFAT \
-           INT_FTP_ROOT INT_RCLONE_REMOTE INT_RCLONE_BASE INT_SSH_KEY INT_HDL_APA; do
+           INT_RCLONE_REMOTE INT_RCLONE_BASE INT_SSH_KEY INT_HDL_APA; do
     if [[ -n "${!var:-}" ]]; then
         pass "$var exported → ${!var}"
     else

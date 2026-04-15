@@ -71,16 +71,18 @@ _int_setup_state() {
     _int_push_teardown "rm -rf '$INT_STATE'"
 }
 
-# ── substrate: $INT_EXTRACT — 256 MB tmpfs ───────────────────────────────────
+# ── substrate: $INT_EXTRACT — 1.5 GB tmpfs ───────────────────────────────────
 #
 # Used as EXTRACT_DIR / COPY_DIR for the happy-path end-to-end scenarios.
-# Sized generously so tests do not accidentally fail on legitimate large
-# archives. Tests that DELIBERATELY want to exhaust space use $INT_SCARCE.
+# Sized to accommodate a full PS2 game ISO (~650 MB–1.5 GB decompressed)
+# so Test 21 and similar real-archive scenarios can run without redirecting
+# to the container rootfs. Tests that DELIBERATELY want to exhaust space
+# use $INT_SCARCE instead.
 
 _int_setup_extract() {
     export INT_EXTRACT="$INT_STATE/extract"
     mkdir -p "$INT_EXTRACT"
-    mount -t tmpfs -o size=256M tmpfs "$INT_EXTRACT" \
+    mount -t tmpfs -o size=1536M tmpfs "$INT_EXTRACT" \
         || bootstrap_fail "mount tmpfs on $INT_EXTRACT"
     _int_push_teardown "umount '$INT_EXTRACT'"
 }
@@ -141,21 +143,37 @@ _int_setup_ftp() {
     export INT_FTP_PORT=2121
     mkdir -p "$INT_FTP_ROOT"
     chmod 777 "$INT_FTP_ROOT"
-    # pure-ftpd --daemonize detaches to the background. Teardown uses pkill
-    # on the bind address pattern to stop it. Anonymous mode lets tests
-    # write without managing passwd files.
+    # Run pure-ftpd in foreground mode, backgrounded via the shell (&).
+    # Avoiding -B (daemonize) because some Debian builds exit non-zero
+    # silently when attempting to fork inside a container. Shell-level
+    # backgrounding gives us a concrete PID for teardown and avoids the
+    # double-fork that makes error detection unreliable.
+    #
+    #   -e  only anonymous logins
+    #   -M  allow anonymous to create directories
+    #   -S  bind address,port (no space between address and port)
     pure-ftpd \
-        --anonymousonly \
-        --anonymouscancreatedirs \
-        --anonymouscantupload=no \
-        --daemonize \
-        --bind=127.0.0.1,"$INT_FTP_PORT" \
-        --chrooteveryone \
-        --noanonymous=no \
         -e \
-        -- "$INT_FTP_ROOT" >/dev/null 2>&1 \
-        || bootstrap_fail "pure-ftpd failed to start on port $INT_FTP_PORT"
-    _int_push_teardown "pkill -f 'pure-ftpd.*--bind=127.0.0.1,$INT_FTP_PORT' || true"
+        -M \
+        -S "127.0.0.1,$INT_FTP_PORT" \
+        "$INT_FTP_ROOT" >/dev/null 2>&1 &
+    local INT_FTP_PID=$!
+
+    # Poll for up to 2 seconds until the port is listening.
+    local i
+    for i in $(seq 1 20); do
+        if ss -tlnp 2>/dev/null | grep -q ":$INT_FTP_PORT "; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    if ! ss -tlnp 2>/dev/null | grep -q ":$INT_FTP_PORT "; then
+        kill "$INT_FTP_PID" 2>/dev/null || true
+        bootstrap_fail "pure-ftpd failed to start on port $INT_FTP_PORT (pid $INT_FTP_PID)"
+    fi
+
+    _int_push_teardown "kill '$INT_FTP_PID' 2>/dev/null || true"
 }
 
 # ── substrate: rclone local remote ───────────────────────────────────────────
@@ -221,17 +239,18 @@ bootstrap_all() {
     _int_setup_extract
     _int_setup_scarce
     _int_setup_sd_vfat
-    _int_setup_ftp
     _int_setup_rclone
     _int_setup_ssh
     _int_setup_hdl
+    # NOTE: _int_setup_ftp is intentionally omitted. The FTP adapter is a
+    # stub and pure-ftpd is not exercised by any current suite. Restore this
+    # call (and add pure-ftpd to the Dockerfile) when the real adapter lands.
     echo "[bootstrap] done."
     echo "[bootstrap]   INT_STATE        = $INT_STATE"
-    echo "[bootstrap]   INT_EXTRACT      = $INT_EXTRACT (256M tmpfs)"
+    echo "[bootstrap]   INT_EXTRACT      = $INT_EXTRACT (1536M tmpfs)"
     echo "[bootstrap]   INT_SCARCE       = $INT_SCARCE (6M tmpfs)"
     echo "[bootstrap]   INT_QUEUE        = $INT_QUEUE"
     echo "[bootstrap]   INT_SD_VFAT      = $INT_SD_VFAT (loop $INT_SD_LOOP on $INT_SD_IMG)"
-    echo "[bootstrap]   INT_FTP_ROOT     = $INT_FTP_ROOT (pure-ftpd :$INT_FTP_PORT)"
     echo "[bootstrap]   INT_RCLONE_REMOTE= $INT_RCLONE_REMOTE: → $INT_RCLONE_BASE"
     echo "[bootstrap]   INT_SSH_PORT     = $INT_SSH_PORT (key $INT_SSH_KEY)"
     echo "[bootstrap]   INT_HDL_APA      = $INT_HDL_APA"

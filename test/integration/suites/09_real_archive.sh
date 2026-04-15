@@ -37,12 +37,10 @@ else
     rm -rf "$T21_DIR" "$T21_EXTRACT" "$INT_SD_VFAT/t21"
     mkdir -p "$T21_DIR" "$T21_EXTRACT"
 
-    # The loop-mounted vfat in the integration container is only 64 MB, so
-    # this 196 MB archive cannot actually land on it. Redirect the sd
-    # destination for this scenario to a plain directory on the container
-    # rootfs — we still exercise the full adapter code path, just without
-    # the vfat size limit. This is documented so a future bump of
-    # $INT_SD_VFAT to ≥256 MB can flip the destination back to vfat.
+    # The loop-mounted vfat is only 64 MB, far too small for a PS2 game.
+    # Redirect the SD destination to a plain dir on the container rootfs so
+    # the full adapter code path is exercised without hitting the vfat size
+    # limit. INT_EXTRACT (1.5 GB tmpfs) handles the decompressed game fine.
     T21_SD="$T21_DIR/sd"
     mkdir -p "$T21_SD"
 

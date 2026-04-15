@@ -51,9 +51,13 @@ RUN mkdir -p /run/sshd
 WORKDIR /opt/loadout-pipeline
 COPY . /opt/loadout-pipeline
 
-# Make all scripts executable (Windows hosts may lose the +x bit via bind
-# mounts, but we defensively chmod anyway for the image-build path).
-RUN find /opt/loadout-pipeline -type f -name '*.sh' -exec chmod +x {} +
+# Strip Windows CRLF line endings from all shell scripts. Windows hosts
+# (and Windows-backed git checkouts on WSL2) may produce \r\n files even
+# when .gitattributes says eol=lf. bash rejects \r in shebang lines and
+# silently misnames functions (e.g. `neg_check\r` vs `neg_check`), so we
+# normalize unconditionally on every image build.
+RUN find /opt/loadout-pipeline -type f -name '*.sh' -exec sed -i 's/\r//' {} + \
+ && find /opt/loadout-pipeline -type f -name '*.sh' -exec chmod +x {} +
 
 # Sentinel file so helpers can detect whether they're running inside the
 # container or on the host and fail loudly if misused.

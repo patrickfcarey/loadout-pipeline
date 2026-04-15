@@ -1,24 +1,19 @@
 # .dockerignore
 #
-# Excludes files that should not be copied into the production image.
-# Test infrastructure, host credentials, and generated artifacts are all
-# excluded to keep the image lean and to prevent accidental credential leakage.
-
-# Git history
-.git
-.gitattributes
+# Fallback ignore rules applied when no Dockerfile-specific .dockerignore exists.
+# The production build uses Dockerfile.dockerignore instead (which also excludes
+# test/). This file covers only credentials and OS artifacts that should never
+# be in any image.
 
 # Credentials — never bake these in; bind-mount at runtime instead
 .env
 
-# Test infrastructure (not needed at runtime)
-test/
+# Git history
+.git
+.gitattributes
 
 # Editor and OS artifacts
 .DS_Store
 *.swp
 *.swo
 Thumbs.db
-
-# Generated test fixtures (large binary files, not needed at runtime)
-test/fixtures/isos/

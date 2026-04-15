@@ -105,7 +105,9 @@ _print_summary
 #
 #   Suite 12: DinD scenarios — invoke the production Docker image as a black
 #   box. Requires /var/run/docker.sock and the INT_HOST_SCRATCH shared volume
-#   provided by launch.sh. All suite 12 scenarios should PASS.
+#   provided by launch.sh. If the socket is absent the suite emits a single
+#   [SKIP] PASS and contributes 0 FAILs. When the socket is present, all
+#   D1/D2/D3 scenarios should PASS.
 if (( FAIL > 0 )); then
     echo ""
     echo "Reminder: stub-adapter scenarios (ftp, hdl_dump, rclone, rsync)"
