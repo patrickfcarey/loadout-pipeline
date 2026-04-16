@@ -88,7 +88,7 @@ worker_registry_init() {
 # Parameters
 #   $1  pid — BASHPID of the worker process claiming the job; used as the
 #             registry key for lookup by worker_job_end and worker_registry_recover
-#   $2  job — full job string being claimed (e.g. "~path/to/game.7z|sd|dest~")
+#   $2  job — full job string being claimed (e.g. "~path/to/game.7z|lvol|dest~")
 #
 # Returns     : 0 always
 # Modifies    : $QUEUE_DIR/.worker_registry — appends "<pid> <job>\n"

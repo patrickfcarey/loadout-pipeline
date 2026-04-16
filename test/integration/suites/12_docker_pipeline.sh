@@ -19,7 +19,7 @@
 #   Host (outer view)          →  Inner container mount
 #   $INT_HOST_SCRATCH/fixtures →  /isos   (read-only archive source)
 #   $INT_HOST_SCRATCH/jobs     →  /jobs   (read-only job profiles)
-#   $INT_HOST_SCRATCH/sd-DX    →  /mnt/sdcard  (writable SD destination)
+#   $INT_HOST_SCRATCH/sd-DX    →  /mnt/lvol  (writable SD destination)
 #
 # Job files reference /isos/... paths because that is what the inner container
 # sees — the host-side $INT_FIXTURES path is not visible inside it.
@@ -73,7 +73,7 @@ done
 # Parameters:
 #   $1   label        — short identifier used in volume/log names and messages
 #   $2   jobs_file    — basename of the .jobs file in /scratch/jobs/
-#   $3   host_sd_dir  — host-side path to the SD card destination directory
+#   $3   host_sd_dir  — host-side path to the local volume destination directory
 #   ...  extra flags  — additional -e KEY=VALUE flags forwarded to docker run
 #
 # Returns the docker run exit code.
@@ -84,8 +84,8 @@ _int_run_prod() {
     docker run --rm \
         -v "$INT_HOST_SCRATCH/fixtures:/isos:ro" \
         -v "$INT_HOST_SCRATCH/jobs:/jobs:ro" \
-        -v "$host_sd_dir:/mnt/sdcard" \
-        -e SD_MOUNT_POINT=/mnt/sdcard \
+        -v "$host_sd_dir:/mnt/lvol" \
+        -e LVOL_MOUNT_POINT=/mnt/lvol \
         -e QUEUE_DIR=/tmp/iso_pipeline_queue \
         -e EXTRACT_DIR=/tmp/iso_pipeline \
         -e COPY_DIR=/tmp/iso_pipeline_copies \
@@ -108,8 +108,8 @@ D1_SD="$INT_HOST_SCRATCH/sd-d1"
 mkdir -p "$D1_SD"
 
 cat > "$D12_JOBS/d1.jobs" <<'EOF'
-~/isos/small.7z|sd|d1/small~
-~/isos/medium.7z|sd|d1/medium~
+~/isos/small.7z|lvol|d1/small~
+~/isos/medium.7z|lvol|d1/medium~
 EOF
 
 D1_LOG="/scratch/d1.log"
@@ -141,8 +141,8 @@ D2_SD="$INT_HOST_SCRATCH/sd-d2"
 mkdir -p "$D2_SD"
 
 cat > "$D12_JOBS/d2.jobs" <<'EOF'
-~/isos/small.7z|sd|d2/small~
-~/isos/medium.7z|sd|d2/medium~
+~/isos/small.7z|lvol|d2/small~
+~/isos/medium.7z|lvol|d2/medium~
 EOF
 
 D2_LOG="/scratch/d2.log"
@@ -169,10 +169,10 @@ D3_PROFILES="$INT_HOST_SCRATCH/profiles-d3"
 mkdir -p "$D3_SD" "$D3_PROFILES"
 
 cat > "$D3_PROFILES/a.jobs" <<'EOF'
-~/isos/small.7z|sd|d3/small~
+~/isos/small.7z|lvol|d3/small~
 EOF
 cat > "$D3_PROFILES/b.jobs" <<'EOF'
-~/isos/medium.7z|sd|d3/medium~
+~/isos/medium.7z|lvol|d3/medium~
 EOF
 
 D3_LOG="/scratch/d3.log"
@@ -180,8 +180,8 @@ set +e
 docker run --rm \
     -v "$INT_HOST_SCRATCH/fixtures:/isos:ro" \
     -v "$D3_PROFILES:/jobs:ro" \
-    -v "$D3_SD:/mnt/sdcard" \
-    -e SD_MOUNT_POINT=/mnt/sdcard \
+    -v "$D3_SD:/mnt/lvol" \
+    -e LVOL_MOUNT_POINT=/mnt/lvol \
     -e QUEUE_DIR=/tmp/iso_pipeline_queue \
     -e EXTRACT_DIR=/tmp/iso_pipeline \
     -e COPY_DIR=/tmp/iso_pipeline_copies \

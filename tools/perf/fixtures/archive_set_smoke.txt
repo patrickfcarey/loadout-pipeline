@@ -1,0 +1,15 @@
+# tools/perf/fixtures/archive_set_smoke.txt
+#
+# Smoke fixture set for perf_harness.sh --smoke. One archive path per
+# line, relative to $ROOT_DIR (the repo root). Blank lines and lines
+# starting with '#' are ignored. The harness falls back to any paths
+# it can actually find and skips the rest, so this file is safe to
+# edit even if a listed fixture has been removed.
+#
+# Deliberately kept to three tiny fixtures so a full sweep of the
+# default combo grid (1x1, 2x2, 4x2) completes in well under two
+# minutes on a CI runner. Add larger fixtures via --archives <dir>
+# rather than growing this list.
+test/fixtures/isos/game1.7z
+test/fixtures/isos/game2.7z
+test/fixtures/isos/game3.7z

@@ -34,10 +34,10 @@ done < <(
     worker_registry_init
 
     # Simulate a worker that registered a job but was never able to unregister.
-    worker_job_begin "99999" "~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|games/game1~"
+    worker_job_begin "99999" "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
 
     recovered=$(worker_registry_recover)
-    expected="~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|games/game1~"
+    expected="~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
     if [[ "$recovered" == "$expected" ]]; then
         echo "PASS orphaned job returned by worker_registry_recover"
     else

@@ -54,14 +54,15 @@ export DEBUG_IND="${DEBUG_IND:-0}"
 export RESUME_PLANNER_IND="${RESUME_PLANNER_IND:-1}"
 export MAX_UNZIP="${MAX_UNZIP:-2}"
 export MAX_DISPATCH="${MAX_DISPATCH:-2}"
+export SCRATCH_DISK_DIR="${SCRATCH_DISK_DIR:-/tmp}"
 # QUEUE_DIR is the parent dir that holds both sub-queues.
-export QUEUE_DIR="${QUEUE_DIR:-/tmp/iso_pipeline_queue}"
+export QUEUE_DIR="${QUEUE_DIR:-$SCRATCH_DISK_DIR/iso_pipeline_queue}"
 export EXTRACT_QUEUE_DIR="${EXTRACT_QUEUE_DIR:-$QUEUE_DIR/extract}"
 export DISPATCH_QUEUE_DIR="${DISPATCH_QUEUE_DIR:-$QUEUE_DIR/dispatch}"
-export EXTRACT_DIR="${EXTRACT_DIR:-/tmp/iso_pipeline}"
+export EXTRACT_DIR="${EXTRACT_DIR:-$SCRATCH_DISK_DIR/iso_pipeline}"
 # Scratch copies live in a sibling dir, NOT inside EXTRACT_DIR: otherwise any
 # consumer that iterates $EXTRACT_DIR/* trips over the hidden .copies subdir.
-export COPY_DIR="${COPY_DIR:-/tmp/iso_pipeline_copies}"
+export COPY_DIR="${COPY_DIR:-$SCRATCH_DISK_DIR/iso_pipeline_copies}"
 # Safety budget applied on top of raw archive + extracted bytes when reserving
 # scratch space. Percent, integer. 20 means "reserve archive+extracted × 1.20".
 export SPACE_OVERHEAD_PCT="${SPACE_OVERHEAD_PCT:-20}"
@@ -72,8 +73,8 @@ export FTP_PASS="${FTP_PASS:-}"
 export FTP_PORT="${FTP_PORT:-21}"
 # HDL dump adapter
 export HDL_DUMP_BIN="${HDL_DUMP_BIN:-hdl_dump}"
-# SD card adapter
-export SD_MOUNT_POINT="${SD_MOUNT_POINT:-/mnt/sdcard}"
+# Local volume adapter
+export LVOL_MOUNT_POINT="${LVOL_MOUNT_POINT:-/mnt/lvol}"
 # rclone adapter
 export RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 export RCLONE_DEST_BASE="${RCLONE_DEST_BASE:-}"

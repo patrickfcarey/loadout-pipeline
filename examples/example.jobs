@@ -1,4 +1,4 @@
 # format: ~iso_path|adapter|destination~
 ~/isos/game1.7z|ftp|/remote/path/game1~
 ~/isos/game2.7z|hdl|/dev/hdd0~
-~/isos/game3.7z|sd|games/game3~
+~/isos/game3.7z|lvol|games/game3~

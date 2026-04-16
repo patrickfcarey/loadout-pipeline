@@ -25,16 +25,16 @@ rm -rf "$T10_DIR" "$T10_COPY" "$T10_EXTRACT" "$INT_SD_VFAT/t10"
 mkdir -p "$T10_DIR" "$T10_COPY" "$T10_EXTRACT"
 
 _int_make_jobs "$T10_JOBS" \
-    "$INT_FIXTURES/small.7z|sd|t10/a" \
-    "$INT_FIXTURES/small.7z|sd|t10/b" \
-    "$INT_FIXTURES/small.7z|sd|t10/c"
+    "$INT_FIXTURES/small.7z|lvol|t10/a" \
+    "$INT_FIXTURES/small.7z|lvol|t10/b" \
+    "$INT_FIXTURES/small.7z|lvol|t10/c"
 
 set +e
 MAX_UNZIP=3 \
 COPY_DIR="$T10_COPY" \
 EXTRACT_DIR="$T10_EXTRACT" \
 QUEUE_DIR="$T10_QUEUE" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T10_JOBS" >"$T10_LOG" 2>&1
 t10_rc=$?
 set -e

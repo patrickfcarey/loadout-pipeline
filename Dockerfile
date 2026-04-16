@@ -9,12 +9,12 @@
 # Build:
 #   docker build -t loadout-pipeline .
 #
-# Run (SD card adapter example):
+# Run (local volume adapter example):
 #   docker run --rm \
 #     -v /path/to/isos:/isos:ro \
-#     -v /mnt/sdcard:/mnt/sdcard \
+#     -v /mnt/lvol:/mnt/lvol \
 #     -v /path/to/profiles:/jobs:ro \
-#     -e SD_MOUNT_POINT=/mnt/sdcard \
+#     -e LVOL_MOUNT_POINT=/mnt/lvol \
 #     loadout-pipeline /jobs/my_games.jobs
 #
 # All environment variables documented in .env.example are accepted via -e or
@@ -30,7 +30,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   bash, coreutils, findutils, procps  — script runtime + stat/realpath/install
 #   p7zip-full                          — 7z x / 7z l (extraction + size probe)
 #   util-linux                          — flock (atomic ledger), losetup
-#   rsync                               — sdcard adapter + rsync adapter
+#   rsync                               — lvol adapter + rsync adapter
 #   rclone                              — rclone adapter
 #   openssh-client                      — rsync-over-SSH (rsync adapter)
 #   ca-certificates                     — rclone TLS handshakes
@@ -59,14 +59,14 @@ RUN find /opt/loadout-pipeline -type f -name '*.sh' -exec chmod +x {} +
 #
 #   /isos          — read-only source archives (iso_path in .jobs files)
 #   /jobs          — read-only job profiles (.jobs files)
-#   /mnt/sdcard    — SD card mount point (SD_MOUNT_POINT default)
+#   /mnt/lvol    — local volume mount point (LVOL_MOUNT_POINT default)
 #   /tmp           — scratch space for EXTRACT_DIR, COPY_DIR, QUEUE_DIR
-VOLUME ["/isos", "/jobs", "/mnt/sdcard"]
+VOLUME ["/isos", "/jobs", "/mnt/lvol"]
 
 # The pipeline entry point. All documented invocation patterns are preserved:
 #
 #   No argument  — loads examples/example.jobs (built-in default)
 #   Positional   — docker run loadout-pipeline /jobs/my.jobs
-#   Env vars     — docker run -e MAX_UNZIP=4 -e SD_MOUNT_POINT=/mnt/sd …
+#   Env vars     — docker run -e MAX_UNZIP=4 -e LVOL_MOUNT_POINT=/mnt/sd …
 #   .env file    — bind-mount at /opt/loadout-pipeline/.env
 ENTRYPOINT ["/usr/bin/env", "bash", "/opt/loadout-pipeline/bin/loadout-pipeline.sh"]

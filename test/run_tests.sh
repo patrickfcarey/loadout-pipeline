@@ -25,18 +25,18 @@ cat > "$TEST_JOBS" <<EOF
 # Regenerated on every test run so paths track \$ROOT_DIR at runtime.
 ~$FIXTURES_DIR/isos/game1.7z|ftp|/remote/path/game1~
 ~$FIXTURES_DIR/isos/game2.7z|hdl|/dev/hdd0~
-~$FIXTURES_DIR/isos/game3.7z|sd|games/game3~
+~$FIXTURES_DIR/isos/game3.7z|lvol|games/game3~
 EOF
 # Ensure this temporary jobs file is removed on every exit path so /tmp
 # does not accumulate stale per-run files across repeated runs.
 trap 'rm -f "$TEST_JOBS"' EXIT
 
-# Default SD destination used by tests that do not set their own SD_MOUNT_POINT.
+# Default SD destination used by tests that do not set their own LVOL_MOUNT_POINT.
 # Exported so all pipeline subprocesses pick it up automatically; tests that
-# need isolation pass SD_MOUNT_POINT=<custom> inline to override it.
+# need isolation pass LVOL_MOUNT_POINT=<custom> inline to override it.
 TEST_SD_DIR="/tmp/iso_pipeline_test_sd_default_$$"
 mkdir -p "$TEST_SD_DIR"
-export SD_MOUNT_POINT="$TEST_SD_DIR"
+export LVOL_MOUNT_POINT="$TEST_SD_DIR"
 
 # Stub adapters (ftp, hdl, rclone, rsync) refuse to run by default so real
 # pipeline invocations don't silently "succeed" without actually transferring
@@ -68,6 +68,12 @@ source "$ROOT_DIR/test/suites/12_resume_planner.sh"
 source "$ROOT_DIR/test/suites/13_prereq.sh"
 source "$ROOT_DIR/test/suites/14_unit_parsers.sh"
 source "$ROOT_DIR/test/suites/15_unit_runtime.sh"
+source "$ROOT_DIR/test/suites/16_unit_lib_helpers.sh"
+source "$ROOT_DIR/test/suites/17_unit_extract_internals.sh"
+source "$ROOT_DIR/test/suites/18_unit_config_jobs_edges.sh"
+source "$ROOT_DIR/test/suites/19_unit_concurrency.sh"
+source "$ROOT_DIR/test/suites/20_unit_adapters_resume.sh"
+source "$ROOT_DIR/test/suites/21_smart_wrapper.sh"
 
 # ── cleanup & summary ─────────────────────────────────────────────────────────
 rm -rf "$TEST_SD_DIR"

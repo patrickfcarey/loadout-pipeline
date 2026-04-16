@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
 # ADAPTER: RSYNC
-# STATUS:  STUB — NOT IMPLEMENTED
 # =============================================================================
-# Transfers an extracted directory to a local path or a remote host over SSH.
+# Transfers an extracted directory to a local or remote destination via rsync.
+# Optimized for large ISO transfers: resumable, checksum-verified, compressed.
 # When RSYNC_HOST is unset the transfer is treated as a local copy.
 #
 # ARGUMENTS
@@ -11,33 +11,11 @@
 #   $2  dest  — destination path relative to RSYNC_DEST_BASE
 #
 # ENVIRONMENT VARIABLES (set in .env or passed at call time)
-#   RSYNC_DEST_BASE    — base path on the target, e.g. "/mnt/nas/games"
-#                                                           (required to implement)
-#   RSYNC_HOST         — remote hostname or IP; omit for a local transfer
-#                                                           (optional)
-#   RSYNC_USER         — SSH username for remote transfers  (optional)
-#   RSYNC_SSH_PORT     — SSH port (default: 22)             (optional)
-#   RSYNC_FLAGS        — extra flags forwarded verbatim to rsync, e.g.
-#                        "--checksum --compress"             (optional)
-#
-# RECOMMENDED INVOCATIONS
-#
-#   Local transfer:
-#     rsync -a --delete "$src/" "${RSYNC_DEST_BASE%/}/$dest/" $RSYNC_FLAGS
-#
-#   Remote transfer over SSH:
-#     rsync -a --delete \
-#       -e "ssh -p ${RSYNC_SSH_PORT:-22}" \
-#       "$src/" \
-#       "${RSYNC_USER:-}${RSYNC_USER:+@}${RSYNC_HOST}:${RSYNC_DEST_BASE%/}/$dest/" \
-#       $RSYNC_FLAGS
-#
-# NOTES
-#   - Trailing slash on $src/ is intentional: rsync copies the *contents* of
-#     src into dest rather than nesting src as a subdirectory inside dest.
-#   - --delete removes remote files that no longer exist locally; remove it
-#     if you want additive-only transfers.
-#   - For large files consider --partial --progress to resume interrupted transfers.
+#   RSYNC_DEST_BASE  — base path on the target            (required)
+#   RSYNC_HOST       — remote hostname; omit for local    (optional)
+#   RSYNC_USER       — SSH username for remote transfers   (optional)
+#   RSYNC_SSH_PORT   — SSH port, default 22               (optional)
+#   RSYNC_FLAGS      — extra flags forwarded to rsync     (optional)
 # =============================================================================
 
 set -euo pipefail
@@ -47,18 +25,78 @@ source "$ROOT_DIR/lib/logging.sh"
 src="$1"
 dest="$2"
 
-# Stub guard — see adapters/ftp.sh for rationale. Set ALLOW_STUB_ADAPTERS=1
-# to allow a no-op stub completion (dev/test without a real rsync target).
-if [[ "${ALLOW_STUB_ADAPTERS:-0}" != 1 ]]; then
-    log_error "rsync: adapter is a stub and has not been implemented."
-    log_error "rsync: set ALLOW_STUB_ADAPTERS=1 to allow the stub to report success anyway."
+# ── Validate ────────────────────────────────────────────────────────────────
+
+if [[ ! -d "$src" ]]; then
+    log_error "rsync: source directory does not exist: $src"
     exit 1
 fi
 
-_target="${RSYNC_DEST_BASE:-<RSYNC_DEST_BASE>}/$dest"
-if [[ -n "${RSYNC_HOST:-}" ]]; then
-    _target="${RSYNC_USER:-}${RSYNC_USER:+@}${RSYNC_HOST}:$_target"
+if [[ -z "${RSYNC_DEST_BASE:-}" ]]; then
+    log_error "rsync: RSYNC_DEST_BASE is not set"
+    exit 1
 fi
 
-# TODO: replace this echo with a real rsync invocation using the vars above
-echo "[rsync] STUB — would transfer $src → $_target"
+if ! command -v rsync >/dev/null 2>&1; then
+    log_error "rsync: rsync command not found on PATH"
+    exit 1
+fi
+
+# ── Build target path ───────────────────────────────────────────────────────
+
+dest_base="${RSYNC_DEST_BASE%/}"
+dest_clean="${dest#/}"
+target_path="${dest_base}/${dest_clean}"
+
+# Base rsync flags: resumable, checksum-verified, compressed.
+# -c is critical: re-extraction via 7z x -aoa changes file mtimes, so rsync's
+# default size+mtime skip would re-transfer everything on a re-run.
+rsync_args=(-avzc --partial --append-verify --info=progress2)
+
+if [[ -z "${RSYNC_HOST:-}" ]]; then
+    # ── Local transfer ──────────────────────────────────────────────────────
+
+    # Containment: prevent "../" escapes out of RSYNC_DEST_BASE
+    if ! command -v realpath >/dev/null 2>&1; then
+        log_error "rsync: realpath not found — containment check is mandatory"
+        log_error "rsync: install GNU coreutils (apt: coreutils, brew: coreutils) to enable the adapter"
+        exit 1
+    fi
+    target_canonical="$(realpath -m "$target_path")"
+    base_canonical="$(realpath -m "$dest_base")"
+    case "${target_canonical}/" in
+        "${base_canonical}/"*) : ;;
+        *)
+            log_error "rsync: destination escapes RSYNC_DEST_BASE"
+            log_error "rsync:   resolved target : $target_canonical"
+            log_error "rsync:   allowed root    : $base_canonical"
+            exit 1
+            ;;
+    esac
+
+    mkdir -p "$target_path"
+
+    log_trace "rsync: local transfer $src → $target_path"
+    echo "[rsync] Transferring $src → $target_path"
+
+    # shellcheck disable=SC2086
+    rsync "${rsync_args[@]}" $RSYNC_FLAGS "$src/" "$target_path/"
+
+else
+    # ── Remote transfer over SSH ────────────────────────────────────────────
+
+    rsync_args+=(-e "ssh -p ${RSYNC_SSH_PORT:-22}")
+
+    remote_target="${RSYNC_USER:+${RSYNC_USER}@}${RSYNC_HOST}:${target_path}/"
+
+    log_trace "rsync: remote transfer $src → $remote_target"
+    echo "[rsync] Transferring $src → $remote_target"
+
+    # --mkpath creates missing destination directories on the remote side
+    # (rsync 3.2.3+, released 2020).
+    # shellcheck disable=SC2086
+    rsync "${rsync_args[@]}" --mkpath $RSYNC_FLAGS "$src/" "$remote_target"
+
+fi
+
+log_trace "rsync: done → $target_path"

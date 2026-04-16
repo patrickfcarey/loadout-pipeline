@@ -365,7 +365,7 @@ workers_start() {
 # onto the extract queue. The caller treats rc=75 as "not a failure".
 #
 # Parameters
-#   $1  job                     — full job string (e.g. "~path/game.7z|sd|dest~")
+#   $1  job                     — full job string (e.g. "~path/game.7z|lvol|dest~")
 #   $2  backoff_seconds_nameref — name of the caller's associative array variable
 #                                 (passed by nameref) that maps job strings to
 #                                 their current backoff interval in seconds; allows

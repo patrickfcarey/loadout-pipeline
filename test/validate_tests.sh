@@ -29,7 +29,7 @@ TEST_JOBS="/tmp/iso_pipeline_validate_jobs_$$.jobs"
 cat > "$TEST_JOBS" <<EOF
 ~$FIXTURES_DIR/isos/game1.7z|ftp|/remote/path/game1~
 ~$FIXTURES_DIR/isos/game2.7z|hdl|/dev/hdd0~
-~$FIXTURES_DIR/isos/game3.7z|sd|games/game3~
+~$FIXTURES_DIR/isos/game3.7z|lvol|games/game3~
 EOF
 trap 'rm -f "$TEST_JOBS"' EXIT
 
@@ -371,7 +371,7 @@ source "$ROOT_DIR/lib/logging.sh"
 # shellcheck source=../lib/worker_registry.sh
 source "$ROOT_DIR/lib/worker_registry.sh"
 
-EXPECTED_JOB="~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|games/game1~"
+EXPECTED_JOB="~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
 
 worker_registry_init
 
@@ -390,7 +390,7 @@ recovered2=$(worker_registry_recover)
 
 # V29: wrong job string would be caught by equality check
 worker_registry_init
-worker_job_begin "99997" "~wrong_archive.7z|sd|games/wrong~"
+worker_job_begin "99997" "~wrong_archive.7z|lvol|games/wrong~"
 recovered3=$(worker_registry_recover)
 [[ "$recovered3" != "$EXPECTED_JOB" ]] \
     && caught "V29: wrong job string would fail equality check in test 15" \
@@ -561,7 +561,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # V41: mid-string /../ in iso path MUST be rejected.
-    printf '%s\n' "~/abs/../etc/passwd.7z|sd|games/game1~" > "$V_TRAV_JOBS"
+    printf '%s\n' "~/abs/../etc/passwd.7z|lvol|games/game1~" > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "MISSED V41: mid-string /../ in iso path was NOT rejected"
@@ -570,7 +570,7 @@ done < <(
     fi
 
     # V42: mid-string /../ in destination MUST be rejected.
-    printf '%s\n' "~/abs/path/game.7z|sd|games/../../../etc/passwd~" > "$V_TRAV_JOBS"
+    printf '%s\n' "~/abs/path/game.7z|lvol|games/../../../etc/passwd~" > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "MISSED V42: mid-string /../ in destination was NOT rejected"
@@ -579,7 +579,7 @@ done < <(
     fi
 
     # V43: legitimate '.' in filename must still be ACCEPTED.
-    printf '%s\n' "~/abs/path/game.v1.7z|sd|games/game.v1~" > "$V_TRAV_JOBS"
+    printf '%s\n' "~/abs/path/game.v1.7z|lvol|games/game.v1~" > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "CAUGHT V43: legitimate path with '.' in names accepted (guard not over-broad)"
@@ -612,7 +612,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # V44: '/..7z' — basename .7z → '.' — MUST be rejected (C1 regression).
-    printf '%s\n' "~/..7z|sd|games/game1~" > "$V_BN_JOBS"
+    printf '%s\n' "~/..7z|lvol|games/game1~" > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "MISSED V44: '/..7z' was NOT rejected — C1 regression"
@@ -621,7 +621,7 @@ done < <(
     fi
 
     # V45: '.hidden.7z' — basename begins with dot — MUST be rejected.
-    printf '%s\n' "~/games/.hidden.7z|sd|games/game1~" > "$V_BN_JOBS"
+    printf '%s\n' "~/games/.hidden.7z|lvol|games/game1~" > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "MISSED V45: '.hidden.7z' was NOT rejected"
@@ -630,7 +630,7 @@ done < <(
     fi
 
     # V46: legitimate 'game1.7z' MUST still be accepted (guard not over-broad).
-    printf '%s\n' "~/games/game1.7z|sd|games/game1~" > "$V_BN_JOBS"
+    printf '%s\n' "~/games/game1.7z|lvol|games/game1~" > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "CAUGHT V46: legitimate 'game1.7z' accepted (guard not over-broad)"
@@ -715,7 +715,7 @@ done < <(
     fi
 
     # V50: push, then pop → rc=0 and output byte-exact.
-    V50_JOB='~/games/game1.7z|sd|games/g1~'
+    V50_JOB='~/games/game1.7z|lvol|games/g1~'
     queue_push "$V_Q_DIR" "$V50_JOB"
     V50_OUT=$(queue_pop "$V_Q_DIR")
     rc=$?
@@ -752,7 +752,7 @@ done < <(
 
     # V51: single-space job — recover emits byte-exact.
     worker_registry_init
-    JOB1='~/games/game1.7z|sd|games/g1~'
+    JOB1='~/games/game1.7z|lvol|games/g1~'
     printf '12345 %s\n' "$JOB1" > "$(_wr_path)"
     OUT1=$(worker_registry_recover)
     if [[ "$OUT1" == "$JOB1" ]]; then
@@ -763,7 +763,7 @@ done < <(
 
     # V52: DOUBLE-space job — recover emits byte-exact (M3 bug).
     worker_registry_init
-    JOB2='~/games/my  game.7z|sd|games/g1~'
+    JOB2='~/games/my  game.7z|lvol|games/g1~'
     printf '12345 %s\n' "$JOB2" > "$(_wr_path)"
     OUT2=$(worker_registry_recover)
     if [[ "$OUT2" == "$JOB2" ]]; then

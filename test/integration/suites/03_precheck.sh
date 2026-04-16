@@ -2,7 +2,7 @@
 # test/integration/suites/03_precheck.sh
 #
 # Precheck (already-at-destination) logic, exercised against a real
-# vfat SD card mount. Every scenario here pre-populates bytes on the
+# vfat local volume mount. Every scenario here pre-populates bytes on the
 # mounted filesystem before the pipeline runs and verifies the real
 # skip/partial/full behaviour.
 
@@ -22,11 +22,11 @@ mkdir -p "$T5_EXTRACT" "$INT_SD_VFAT/t5/small"
 # pipeline's copy path despite a precheck hit would update mtime.
 pre_epoch=$(stat -c '%Y' "$INT_SD_VFAT/t5/small/small.iso")
 
-printf '~%s/small.7z|sd|t5/small~\n' "$INT_FIXTURES" > "$T5_JOBS"
+printf '~%s/small.7z|lvol|t5/small~\n' "$INT_FIXTURES" > "$T5_JOBS"
 
 set +e
 EXTRACT_DIR="$T5_EXTRACT" QUEUE_DIR="$INT_QUEUE/t5" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T5_JOBS" >"$T5_LOG" 2>&1
 t5_rc=$?
 set -e
@@ -49,11 +49,11 @@ rm -rf "$T6_EXTRACT" "$INT_SD_VFAT/t6"
 mkdir -p "$T6_EXTRACT" "$INT_SD_VFAT/t6/multi"
 ( cd "$INT_SD_VFAT/t6/multi" && 7z x -y "$INT_FIXTURES/multi.7z" >/dev/null )
 
-printf '~%s/multi.7z|sd|t6/multi~\n' "$INT_FIXTURES" > "$T6_JOBS"
+printf '~%s/multi.7z|lvol|t6/multi~\n' "$INT_FIXTURES" > "$T6_JOBS"
 
 set +e
 EXTRACT_DIR="$T6_EXTRACT" QUEUE_DIR="$INT_QUEUE/t6" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T6_JOBS" >"$T6_LOG" 2>&1
 t6_rc=$?
 set -e
@@ -71,11 +71,11 @@ mkdir -p "$T7_EXTRACT" "$INT_SD_VFAT/t7/multi"
 # Only half the archive is present — the real precheck must not short-circuit.
 printf 'partial bin\n' > "$INT_SD_VFAT/t7/multi/multi.bin"
 
-printf '~%s/multi.7z|sd|t7/multi~\n' "$INT_FIXTURES" > "$T7_JOBS"
+printf '~%s/multi.7z|lvol|t7/multi~\n' "$INT_FIXTURES" > "$T7_JOBS"
 
 set +e
 EXTRACT_DIR="$T7_EXTRACT" QUEUE_DIR="$INT_QUEUE/t7" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T7_JOBS" >"$T7_LOG" 2>&1
 t7_rc=$?
 set -e

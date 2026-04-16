@@ -30,7 +30,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # Case A: mid-string traversal in the destination field.
-    printf '%s\n' "~/abs/path/game.7z|sd|games/../../../etc/passwd~" > "$TRAV_JOBS"
+    printf '%s\n' "~/abs/path/game.7z|lvol|games/../../../etc/passwd~" > "$TRAV_JOBS"
     JOBS=()
     if load_jobs "$TRAV_JOBS" 2>"$TRAV_LOG"; then
         echo "FAIL mid-string traversal in destination was NOT rejected"
@@ -39,7 +39,7 @@ done < <(
     fi
 
     # Case B: mid-string traversal in the ISO path.
-    printf '%s\n' "~/abs/../etc/passwd.7z|sd|games/game1~" > "$TRAV_JOBS"
+    printf '%s\n' "~/abs/../etc/passwd.7z|lvol|games/game1~" > "$TRAV_JOBS"
     JOBS=()
     if load_jobs "$TRAV_JOBS" 2>"$TRAV_LOG"; then
         echo "FAIL mid-string traversal in iso path was NOT rejected"
@@ -48,7 +48,7 @@ done < <(
     fi
 
     # Case C: legitimate paths with '.' in filenames (not as segments) still pass.
-    printf '%s\n' "~/abs/path/game.v1.7z|sd|games/game.v1~" > "$TRAV_JOBS"
+    printf '%s\n' "~/abs/path/game.v1.7z|lvol|games/game.v1~" > "$TRAV_JOBS"
     JOBS=()
     if load_jobs "$TRAV_JOBS" 2>"$TRAV_LOG"; then
         echo "PASS legitimate path with '.' in names still accepted"

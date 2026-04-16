@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   p7zip-full                         — archive extraction
 #   dosfstools                         — mkfs.vfat for the SD loopback
 #   util-linux, mount                  — losetup, mount, stat, flock, unshare
-#   rsync                              — sdcard adapter + real rsync adapter
+#   rsync                              — lvol adapter + real rsync adapter
 #   openssh-server, openssh-client     — rsync-over-ssh to localhost
 #   pure-ftpd                          — ftp adapter loopback
 #   rclone                             — rclone adapter loopback (type=local)

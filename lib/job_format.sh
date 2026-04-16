@@ -37,7 +37,7 @@
 #
 # Parameters
 #   $1  raw_job_line — the full job string including leading and trailing '~'
-#                      e.g. "~/path/to/game.7z|sd|games/game1~"
+#                      e.g. "~/path/to/game.7z|lvol|games/game1~"
 #
 # Returns
 #   0 — success; three newline-separated fields are printed to stdout:

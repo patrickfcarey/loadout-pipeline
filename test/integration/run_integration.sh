@@ -54,7 +54,7 @@ export INT_FIXTURES
 export EXTRACT_DIR="$INT_EXTRACT"
 export COPY_DIR="$INT_EXTRACT/.copies"
 export QUEUE_DIR="$INT_QUEUE"
-export SD_MOUNT_POINT="$INT_SD_VFAT"
+export LVOL_MOUNT_POINT="$INT_SD_VFAT"
 # Stub adapters would refuse to run without this. The integration suite
 # does not actually call any stub adapter (stub scenarios hard-fail on
 # purpose), but a couple of default example.jobs lines may still route
@@ -96,7 +96,7 @@ _print_summary
 
 # Note for the operator:
 #
-#   Suite 07: four stub-adapter scenarios (ftp, hdl_dump, rclone, rsync) are
+#   Suite 07: three stub-adapter scenarios (ftp, hdl_dump, rclone) are
 #   expected to FAIL until real implementations land. They are intentionally
 #   hard-failing — see test/integration/suites/07_adapters.sh.
 #
@@ -112,7 +112,7 @@ _print_summary
 #   D1/D2/D3 scenarios should PASS.
 if (( FAIL > 0 )); then
     echo ""
-    echo "Reminder: stub-adapter scenarios (ftp, hdl_dump, rclone, rsync)"
+    echo "Reminder: stub-adapter scenarios (ftp, hdl_dump, rclone)"
     echo "are intentional FAILs until those adapters are implemented."
     echo "Suite 11 (negative) and suite 12 (DinD) should contribute 0 FAILs."
 fi

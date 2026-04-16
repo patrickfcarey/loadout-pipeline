@@ -227,7 +227,7 @@ assert_queue_empty() {
 # ${EXTRACT_BASE:?} causes an immediate abort if EXTRACT_BASE is unset or empty,
 # preventing an accidental rm -rf against /.
 #
-# Also resets TEST_SD_DIR: once the real SD adapter has dispatched a game,
+# Also resets TEST_SD_DIR: once the lvol adapter has dispatched a game,
 # precheck would skip it on the next run. Resetting here keeps each test
 # that calls clean_extracts starting from a fresh dispatch destination.
 clean_extracts() {

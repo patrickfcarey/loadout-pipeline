@@ -15,7 +15,7 @@
 # for all files it stores (e.g. all files get 555 regardless of what was
 # written). Including mode would cause spurious mismatches whenever the
 # expected tree lives on ext4/tmpfs and the actual tree lives on the vfat
-# SD card loopback. Content identity (path + size + sha256) is sufficient.
+# local volume loopback. Content identity (path + size + sha256) is sufficient.
 #
 # Two directories compare equal iff every file is present in both AND the
 # bytes and size match exactly. Using `LC_ALL=C sort` locks the ordering so

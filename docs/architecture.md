@@ -1,5 +1,8 @@
 # loadout-pipeline Architecture
 
+Per-function requirements live under [`docs/requirements/`](requirements/index.md);
+this document is the narrative overview.
+
 ## Entry Point
 
 `bin/loadout-pipeline.sh` is the single entry point. On startup it:
@@ -166,7 +169,7 @@ Per-adapter behaviour:
 
 | Adapter  | Check                                                 | Status                                      |
 |----------|-------------------------------------------------------|---------------------------------------------|
-| `sd`     | `test -e "$SD_MOUNT_POINT/$dest/<contained>"`         | Real                                        |
+| `lvol`     | `test -e "$LVOL_MOUNT_POINT/$dest/<contained>"`         | Real                                        |
 | `ftp`    | TODO: `curl --list-only` / `lftp ls` against `$dest`  | Stub (always returns "not present")         |
 | `hdl`    | TODO: `hdl_dump toc "$dest"` grep for title           | Stub (always returns "not present")         |
 | `rclone` | TODO: `rclone ls $RCLONE_REMOTE$RCLONE_DEST_BASE/...` | Stub (always returns "not present")         |
@@ -186,10 +189,15 @@ Override precedence (highest to lowest):
 2. `.env` file values
 3. Hardcoded fallbacks in `lib/config.sh`
 
+`SCRATCH_DISK_DIR` (default `/tmp`) is the root for all scratch I/O.
+`EXTRACT_DIR`, `COPY_DIR`, and `QUEUE_DIR` all derive from it when not set
+explicitly, so a single variable controls where all temporary data lands.
+
 Key variables not visible in the pipeline core table:
 
 | Variable                          | Default                  | Description                                                                        |
 |-----------------------------------|--------------------------|------------------------------------------------------------------------------------|
+| `SCRATCH_DISK_DIR`                | `/tmp`                   | Root for all scratch I/O; child dirs derive from this                              |
 | `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`   | File listing bare filenames to delete from every extracted archive before dispatch |
 | `DISPATCH_POLL_INITIAL_MS`        | `50`                     | Starting poll interval (ms) for dispatch workers when the dispatch queue is empty  |
 | `DISPATCH_POLL_MAX_MS`            | `500`                    | Maximum poll interval (ms) for the exponential dispatch backoff                    |
@@ -202,12 +210,17 @@ See `.env.example` for the full variable reference.
 
 ## Adapters
 
-The SD card adapter (`adapters/sdcard.sh`) is **fully implemented**: it
-validates `SD_MOUNT_POINT`, performs a `realpath -m` containment check to
+The local volume adapter (`adapters/lvol.sh`) is **fully implemented**: it
+validates `LVOL_MOUNT_POINT`, performs a `realpath -m` containment check to
 prevent destination-escape via `..` segments, and copies using `rsync -a`
-(with a `cp -r` fallback when rsync is unavailable).
+(with a `cp -r` fallback when rsync is unavailable). It works with SD cards,
+USB drives, NVMe/SSD/HDD enclosures, or any locally-mounted path.
 
-All other adapters (`ftp`, `hdl`, `rclone`, `rsync`) are **stubs** — they log
+The `rsync` adapter transfers files via rsync with checksum-verified,
+resumable transfers (`-avzc --partial --append-verify`). It supports
+both local and remote (SSH) destinations.
+
+The remaining adapters (`ftp`, `hdl`, `rclone`) are **stubs** — they log
 what they would do but do not transfer any files. Each script contains a
 `TODO` marker and implementation notes.
 

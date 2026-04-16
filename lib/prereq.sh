@@ -13,7 +13,7 @@
 # needs regardless of which adapters are used. Adapter-specific tools
 # (rsync, rclone, ssh, hdl_dump, lftp/curl) are validated lazily by the
 # adapters themselves when they are actually invoked — this keeps the preflight
-# check non-intrusive for hosts that, for example, only use the SD card adapter
+# check non-intrusive for hosts that, for example, only use the lvol adapter
 # and therefore have no reason to install rclone.
 # =============================================================================
 

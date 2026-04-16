@@ -18,12 +18,12 @@
 #   2 — fatal: malformed archive, unknown adapter, etc.
 #
 # Arguments
-#   $1  adapter  — ftp | hdl | sd
+#   $1  adapter  — ftp | hdl | lvol
 #   $2  archive  — absolute path to the source .7z archive
 #   $3  dest     — adapter-specific destination path (from the job line)
 #
 # Adapter-specific "already present" logic
-#   sd   — real filesystem check against SD_MOUNT_POINT/$dest/<each member>
+#   lvol — real filesystem check against LVOL_MOUNT_POINT/$dest/<each member>
 #   ftp  — STUB: always returns "not present". Real impl would use `lftp ls`
 #          or `curl --list-only` to check the remote directory.
 #   hdl  — STUB: always returns "not present". Real impl would use
@@ -113,22 +113,22 @@ _precheck_member_is_safe() {
 # ── 1. Already at destination? ────────────────────────────────────────────
 already_present=0
 case "$adapter" in
-    sd)
-        # SD card: dest is a subdirectory under SD_MOUNT_POINT. ALL contained
+    lvol)
+        # Local volume: dest is a subdirectory under LVOL_MOUNT_POINT. ALL contained
         # members must exist for the archive to count as already present —
         # missing any one member means we still need to extract + re-dispatch.
-        local_root="${SD_MOUNT_POINT%/}/${dest#/}"
+        local_root="${LVOL_MOUNT_POINT%/}/${dest#/}"
 
-        # Containment guard: reject destinations that escape SD_MOUNT_POINT via
+        # Containment guard: reject destinations that escape LVOL_MOUNT_POINT via
         # ".." segments. load_jobs already rejects ".." at parse time, but
         # precheck also validates in case it is ever called independently.
         if command -v realpath >/dev/null 2>&1; then
             local_root_canonical="$(realpath -m "$local_root")"
-            mount_canonical="$(realpath -m "${SD_MOUNT_POINT%/}")"
+            mount_canonical="$(realpath -m "${LVOL_MOUNT_POINT%/}")"
             case "${local_root_canonical}/" in
                 "${mount_canonical}/"*) : ;;
                 *)
-                    log_warn "precheck: destination escapes SD_MOUNT_POINT — refusing probe: $local_root_canonical"
+                    log_warn "precheck: destination escapes LVOL_MOUNT_POINT — refusing probe: $local_root_canonical"
                     exit 2
                     ;;
             esac

@@ -3,7 +3,7 @@
 #
 # End-to-end happy-path runs on real substrates. Every scenario here
 # drives bin/loadout-pipeline.sh against the real 256 MB tmpfs ($INT_EXTRACT)
-# and the real loop-mounted vfat SD card ($INT_SD_VFAT), then verifies
+# and the real loop-mounted vfat local volume ($INT_SD_VFAT), then verifies
 # the output tree byte-for-byte against the decoded source tree.
 
 # ─── helper: build a scenario-local jobs file ───────────────────────────────
@@ -33,14 +33,14 @@ rm -rf "$T2_EXTRACT"
 mkdir -p "$T2_EXTRACT"
 
 _int_make_jobs "$T2_JOBS" \
-    "$INT_FIXTURES/small.7z|sd|t2/small" \
-    "$INT_FIXTURES/medium.7z|sd|t2/medium" \
-    "$INT_FIXTURES/multi.7z|sd|t2/multi"
+    "$INT_FIXTURES/small.7z|lvol|t2/small" \
+    "$INT_FIXTURES/medium.7z|lvol|t2/medium" \
+    "$INT_FIXTURES/multi.7z|lvol|t2/multi"
 
 T2_LOG="$INT_STATE/t2.log"
 set +e
 EXTRACT_DIR="$T2_EXTRACT" QUEUE_DIR="$INT_QUEUE/t2" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T2_JOBS" >"$T2_LOG" 2>&1
 t2_rc=$?
 set -e
@@ -68,14 +68,14 @@ rm -rf "$T3_EXTRACT" "$INT_SD_VFAT/t3"
 mkdir -p "$T3_EXTRACT"
 
 _int_make_jobs "$T3_JOBS" \
-    "$INT_FIXTURES/small.7z|sd|t3/a" \
-    "$INT_FIXTURES/small.7z|sd|t3/b" \
-    "$INT_FIXTURES/small.7z|sd|t3/c"
+    "$INT_FIXTURES/small.7z|lvol|t3/a" \
+    "$INT_FIXTURES/small.7z|lvol|t3/b" \
+    "$INT_FIXTURES/small.7z|lvol|t3/c"
 
 set +e
 MAX_UNZIP=1 \
 EXTRACT_DIR="$T3_EXTRACT" QUEUE_DIR="$INT_QUEUE/t3" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T3_JOBS" >"$INT_STATE/t3.log" 2>&1
 t3_rc=$?
 set -e
@@ -96,13 +96,13 @@ rm -rf "$T4_EXTRACT" "$INT_SD_VFAT/t4"
 mkdir -p "$T4_EXTRACT"
 
 _int_make_jobs "$T4_JOBS" \
-    "$INT_FIXTURES/small.7z|sd|t4/a" \
-    "$INT_FIXTURES/medium.7z|sd|t4/b"
+    "$INT_FIXTURES/small.7z|lvol|t4/a" \
+    "$INT_FIXTURES/medium.7z|lvol|t4/b"
 
 set +e
 MAX_UNZIP=5 \
 EXTRACT_DIR="$T4_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T4_JOBS" >"$INT_STATE/t4.log" 2>&1
 t4_rc=$?
 set -e
@@ -137,15 +137,15 @@ mkdir -p "$T4B_DIR" "$T4B_EXTRACT"
 
 # Two halves of the job set in two separate files — both must be loaded.
 _int_make_jobs "$T4B_DIR/a_small.jobs" \
-    "$INT_FIXTURES/small.7z|sd|t4b/small"
+    "$INT_FIXTURES/small.7z|lvol|t4b/small"
 _int_make_jobs "$T4B_DIR/b_medium.jobs" \
-    "$INT_FIXTURES/medium.7z|sd|t4b/medium"
+    "$INT_FIXTURES/medium.7z|lvol|t4b/medium"
 # A non-.jobs sibling must be ignored by the directory loader.
 echo "ignored" > "$T4B_DIR/notes.txt"
 
 set +e
 EXTRACT_DIR="$T4B_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4b" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T4B_DIR" >"$INT_STATE/t4b.log" 2>&1
 t4b_rc=$?
 set -e
@@ -159,7 +159,7 @@ T4B_EMPTY="$INT_STATE/t4b_empty"
 rm -rf "$T4B_EMPTY"; mkdir -p "$T4B_EMPTY"
 set +e
 EXTRACT_DIR="$T4B_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4b_empty" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T4B_EMPTY" >"$INT_STATE/t4b_empty.log" 2>&1
 t4b_empty_rc=$?
 set -e
@@ -192,14 +192,14 @@ rm -rf "$T4C_EXTRACT" "$INT_SD_VFAT/t4c"
 mkdir -p "$T4C_EXTRACT"
 
 _int_make_jobs "$T4C_JOBS" \
-    "$INT_FIXTURES/wrapper_ok.7z|sd|t4c/ok" \
-    "$INT_FIXTURES/wrapper_strip.7z|sd|t4c/strip" \
-    "$INT_FIXTURES/wrapper_ambig.7z|sd|t4c/ambig"
+    "$INT_FIXTURES/wrapper_ok.7z|lvol|t4c/ok" \
+    "$INT_FIXTURES/wrapper_strip.7z|lvol|t4c/strip" \
+    "$INT_FIXTURES/wrapper_ambig.7z|lvol|t4c/ambig"
 
 T4C_LOG="$INT_STATE/t4c.log"
 set +e
 EXTRACT_DIR="$T4C_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4c" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T4C_JOBS" >"$T4C_LOG" 2>&1
 t4c_rc=$?
 set -e

@@ -11,7 +11,7 @@ T12_QUEUE="$INT_QUEUE/t12"
 mkdir -p "$T12_QUEUE"
 
 dead_pid=$(inject_dead_pid)
-ORPHAN_JOB="~$INT_FIXTURES/small.7z|sd|t12/orphan~"
+ORPHAN_JOB="~$INT_FIXTURES/small.7z|lvol|t12/orphan~"
 
 while IFS= read -r line; do
     case "$line" in
@@ -55,7 +55,7 @@ mkdir -p "$T13_QUEUE"
 T13_DIR="$INT_EXTRACT/t13 has  two  spaces"
 mkdir -p "$T13_DIR"
 cp "$INT_FIXTURES/small.7z" "$T13_DIR/weird  game.7z"
-T13_JOB="~$T13_DIR/weird  game.7z|sd|t13/weird  game~"
+T13_JOB="~$T13_DIR/weird  game.7z|lvol|t13/weird  game~"
 
 while IFS= read -r line; do
     case "$line" in

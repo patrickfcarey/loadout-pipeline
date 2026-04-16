@@ -42,9 +42,9 @@ _u_run_subshell < <(
     source "$ROOT_DIR/lib/job_format.sh"
 
     # Happy path: three non-empty fields, returns 0, emits three lines.
-    if out=$(parse_job_line "~/abs/path/game.7z|sd|games/game1~") && [[ -n "$out" ]]; then
+    if out=$(parse_job_line "~/abs/path/game.7z|lvol|games/game1~") && [[ -n "$out" ]]; then
         { read -r iso; read -r adapter; read -r dest; } <<< "$out"
-        if [[ "$iso" == "/abs/path/game.7z" && "$adapter" == "sd" && "$dest" == "games/game1" ]]; then
+        if [[ "$iso" == "/abs/path/game.7z" && "$adapter" == "lvol" && "$dest" == "games/game1" ]]; then
             echo "PASS happy path parsed into three correct fields"
         else
             echo "FAIL happy path fields mismatched: iso='$iso' adapter='$adapter' dest='$dest'"
@@ -54,21 +54,21 @@ _u_run_subshell < <(
     fi
 
     # Missing leading '~' must fail.
-    if parse_job_line "/abs/game.7z|sd|dest~" >/dev/null 2>&1; then
+    if parse_job_line "/abs/game.7z|lvol|dest~" >/dev/null 2>&1; then
         echo "FAIL missing leading tilde was accepted"
     else
         echo "PASS missing leading tilde rejected"
     fi
 
     # Missing trailing '~' must fail.
-    if parse_job_line "~/abs/game.7z|sd|dest" >/dev/null 2>&1; then
+    if parse_job_line "~/abs/game.7z|lvol|dest" >/dev/null 2>&1; then
         echo "FAIL missing trailing tilde was accepted"
     else
         echo "PASS missing trailing tilde rejected"
     fi
 
-    # Empty iso_path field (~||sd|dest~-style) must fail.
-    if parse_job_line "~|sd|dest~" >/dev/null 2>&1; then
+    # Empty iso_path field (~||lvol|dest~-style) must fail.
+    if parse_job_line "~|lvol|dest~" >/dev/null 2>&1; then
         echo "FAIL empty iso_path was accepted"
     else
         echo "PASS empty iso_path rejected"
@@ -82,7 +82,7 @@ _u_run_subshell < <(
     fi
 
     # Empty dest field must fail.
-    if parse_job_line "~/abs/game.7z|sd|~" >/dev/null 2>&1; then
+    if parse_job_line "~/abs/game.7z|lvol|~" >/dev/null 2>&1; then
         echo "FAIL empty dest was accepted"
     else
         echo "PASS empty dest rejected"
@@ -115,7 +115,7 @@ _u_run_subshell < <(
     # parse_job_line's contract is three-field output; a fourth pipe becomes
     # part of the dest. That's a known-accepted form; document it as a PASS
     # so a future change that tightens the contract is a conscious decision.
-    out=$(parse_job_line "~/abs/game.7z|sd|dest|extra~" 2>/dev/null) || out=""
+    out=$(parse_job_line "~/abs/game.7z|lvol|dest|extra~" 2>/dev/null) || out=""
     if [[ -n "$out" ]]; then
         lines=$(printf '%s\n' "$out" | wc -l)
         if [[ "$lines" -eq 3 ]]; then
@@ -128,8 +128,8 @@ _u_run_subshell < <(
     fi
 
     # Archive name with spaces and parentheses must survive unchanged.
-    out=$(parse_job_line "~/games/Game Name (USA).7z|sd|ps2~") || out=""
-    if [[ "$out" == $'/games/Game Name (USA).7z\nsd\nps2' ]]; then
+    out=$(parse_job_line "~/games/Game Name (USA).7z|lvol|ps2~") || out=""
+    if [[ "$out" == $'/games/Game Name (USA).7z\nlvol\nps2' ]]; then
         echo "PASS spaces and parentheses preserved in iso_path"
     else
         echo "FAIL spaces/parens mangled: '$out'"
@@ -220,12 +220,12 @@ U3_DIR="/tmp/lp_unit_loadjobs_$$"
 mkdir -p "$U3_DIR"
 
 # Case A — CRLF line endings: must parse identically to LF-only files.
-printf '~/abs/game.7z|sd|dest~\r\n' > "$U3_DIR/crlf.jobs"
+printf '~/abs/game.7z|lvol|dest~\r\n' > "$U3_DIR/crlf.jobs"
 
 # Case B — mixed blanks and full-line comments among valid jobs.
 cat > "$U3_DIR/mixed.jobs" <<'EOF'
 # header comment
-~/abs/a.7z|sd|d1~
+~/abs/a.7z|lvol|d1~
 
 # another comment
 
@@ -236,14 +236,14 @@ EOF
 cat > "$U3_DIR/all_adapters.jobs" <<'EOF'
 ~/abs/a.7z|ftp|/d1~
 ~/abs/b.7z|hdl|/dev/hdd0~
-~/abs/c.7z|sd|d3~
+~/abs/c.7z|lvol|d3~
 ~/abs/d.7z|rclone|remote/d4~
 ~/abs/e.7z|rsync|d5~
 EOF
 
 # Case D — dot basename. After `basename ... .7z` this stem is empty / a dot
 # and must be rejected (would otherwise collide with $EXTRACT_DIR root).
-printf '~/..7z|sd|dest~\n' > "$U3_DIR/dot_basename.jobs"
+printf '~/..7z|lvol|dest~\n' > "$U3_DIR/dot_basename.jobs"
 
 # Case E — only blanks and comments. load_jobs must NOT error, but should warn
 # and leave JOBS empty.
@@ -256,10 +256,10 @@ EOF
 # Case F — shell-injection-ish characters in dest. The destination char class
 # is restrictive (no $ ; & ` etc), so a destination containing a dollar sign
 # must be rejected by the regex.
-printf '~/abs/game.7z|sd|dest$INJECT~\n' > "$U3_DIR/injection.jobs"
+printf '~/abs/game.7z|lvol|dest$INJECT~\n' > "$U3_DIR/injection.jobs"
 
 # Case G — relative iso path (no leading slash) must be rejected.
-printf '~abs/game.7z|sd|dest~\n' > "$U3_DIR/relative.jobs"
+printf '~abs/game.7z|lvol|dest~\n' > "$U3_DIR/relative.jobs"
 
 _u_run_subshell < <(
     export ROOT_DIR

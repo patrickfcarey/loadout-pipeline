@@ -1,6 +1,6 @@
 # loadout-pipeline
 
-A lightweight shell-based pipeline for **unpacking ISO/game files** and dispatching them to multiple destinations (FTP, HDL dump, SD card, rclone, rsync).
+A lightweight shell-based pipeline for **unpacking ISO/game files** and dispatching them to multiple destinations (FTP, HDL dump, local volume, rclone, rsync).
 
 It supports **parallel extraction**, **bounded queues**, **pluggable adapters**, **flock-guarded space reservations**, and **intra-run recovery of SIGKILL'd workers** — designed for fast scratch storage and large archival pools.
 
@@ -9,7 +9,7 @@ It supports **parallel extraction**, **bounded queues**, **pluggable adapters**,
 ## Features
 
 - Two-stage pipeline: extract workers (`MAX_UNZIP`) and dispatch workers (`MAX_DISPATCH`) drain two file-based queues concurrently so dispatch of job N overlaps extraction of job N+1
-- Dispatch to multiple destinations: FTP, HDL dump, SD card, rclone, rsync
+- Dispatch to multiple destinations: FTP, HDL dump, local volume (SD cards, USB drives, NVMe/SSD/HDD), rclone, rsync
 - Precheck short-circuit: skips the whole copy → extract → dispatch sequence when the contents are already present at the destination (`[skip] ...`)
 - **Shared space ledger** (`lib/space.sh`): concurrent extract workers coordinate scratch-space reservations through a `flock`-guarded check-and-commit, with pooling on same-filesystem setups and a configurable overhead margin (`SPACE_OVERHEAD_PCT`, default 20%)
 - **Per-run scratch spool** (`COPY_SPOOL=$COPY_DIR/$$`): each run owns its own subdir; a startup sweep reclaims spools left by previous runs whose PID is no longer alive — safe against concurrent pipeline instances
@@ -32,16 +32,16 @@ chmod 600 .env          # keep credentials private
 bash test/fixtures/create_fixtures.sh   # generate test archives
 
 # 2. Run a built-in example profile
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # 3. Run your own profile from anywhere on disk
 bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
 
-# 4. Override the SD card destination at call time — no file editing needed
-SD_MOUNT_POINT=/media/usbstick bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
+# 4. Override the local volume destination at call time — no file editing needed
+LVOL_MOUNT_POINT=/media/usbstick bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
 
 # 5. More workers + dedicated scratch dir for a fast NVMe drive
-MAX_UNZIP=6 EXTRACT_DIR=/mnt/nvme/extract COPY_DIR=/mnt/nvme/scratch \
+MAX_UNZIP=6 SCRATCH_DISK_DIR=/mnt/nvme \
     bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
 ```
 
@@ -92,7 +92,7 @@ All three deployment modes need the same runtime dependencies. The Docker image 
 
 **Per-adapter (install only what you dispatch to):**
 
-- `rsync` — used by the **sdcard** adapter and the **rsync** adapter
+- `rsync` — used by the **lvol** adapter and the **rsync** adapter
 - `rclone` — used by the **rclone** adapter
 - `openssh-client` / `openssh` — used by the **rsync** adapter when targeting rsync-over-SSH
 - `ca-certificates` — used by **rclone** for TLS
@@ -152,7 +152,7 @@ chmod 600 .env
 bash test/run_tests.sh
 
 # Run the pipeline
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 The repo root is the working directory — `bin/loadout-pipeline.sh` discovers `lib/`, `adapters/`, `.env`, and `strip.list` relative to its own location, so you can invoke it from anywhere as long as the tree is intact.
@@ -193,10 +193,10 @@ loadout-pipeline ~/profiles/my_collection.jobs
 
 ##### Pitfalls and gotchas
 
-- **`.env` is no longer next to the script.** In git-checkout mode `loadout-pipeline.sh` finds `.env` relative to its own location. Once the bundle lives in `/usr/local/bin`, you almost certainly **don't** want it reading `/usr/local/bin/.env` (and shouldn't put credentials there anyway). Put your `.env` somewhere sane (`/etc/loadout-pipeline/.env` system-wide, or `~/.config/loadout-pipeline/.env` per-user), `chmod 600` it, and either `source` it in your shell before invoking or point at it explicitly — every variable documented in `.env.example` can also be set inline: `SD_MOUNT_POINT=/mnt/sd MAX_UNZIP=4 loadout-pipeline my.jobs`.
+- **`.env` is no longer next to the script.** In git-checkout mode `loadout-pipeline.sh` finds `.env` relative to its own location. Once the bundle lives in `/usr/local/bin`, you almost certainly **don't** want it reading `/usr/local/bin/.env` (and shouldn't put credentials there anyway). Put your `.env` somewhere sane (`/etc/loadout-pipeline/.env` system-wide, or `~/.config/loadout-pipeline/.env` per-user), `chmod 600` it, and either `source` it in your shell before invoking or point at it explicitly — every variable documented in `.env.example` can also be set inline: `LVOL_MOUNT_POINT=/mnt/sd MAX_UNZIP=4 loadout-pipeline my.jobs`.
 - **Relative jobs-file paths are resolved against `$PWD`**, not the install location. `loadout-pipeline my.jobs` means "`./my.jobs` in whatever directory I'm currently `cd`'d into." Use absolute paths (`/etc/loadout-pipeline/jobs/my.jobs`) in cron / systemd / scripts where `$PWD` is unpredictable.
-- **Scratch directories default to `/tmp`.** `QUEUE_DIR`, `EXTRACT_DIR`, and `COPY_DIR` all default under `/tmp`, which on most distros is either small, `tmpfs`-backed (RAM!), or wiped on reboot. For real workloads override these to a roomy disk — e.g. `EXTRACT_DIR=/var/lib/loadout-pipeline/extract COPY_DIR=/var/lib/loadout-pipeline/copies`.
-- **Per-user `/tmp` collisions.** If two different users both run `loadout-pipeline` with default settings they'll collide in `/tmp/iso_pipeline_queue` and `/tmp/iso_pipeline_copies`. The per-run `$COPY_DIR/$$` spool isolates *runs*, not *users* — give each user their own `QUEUE_DIR` / `COPY_DIR` / `EXTRACT_DIR`, or run as a dedicated `loadout` service user.
+- **Scratch directories default to `/tmp`.** `SCRATCH_DISK_DIR` defaults to `/tmp`, and `QUEUE_DIR`, `EXTRACT_DIR`, and `COPY_DIR` all derive from it. On most distros `/tmp` is either small, `tmpfs`-backed (RAM!), or wiped on reboot. For real workloads set `SCRATCH_DISK_DIR` to a roomy disk — e.g. `SCRATCH_DISK_DIR=/var/lib/loadout-pipeline`. You can still override individual child dirs if needed.
+- **Per-user `/tmp` collisions.** If two different users both run `loadout-pipeline` with default settings they'll collide in `/tmp/iso_pipeline_queue` and `/tmp/iso_pipeline_copies`. The per-run `$COPY_DIR/$$` spool isolates *runs*, not *users* — give each user their own `SCRATCH_DISK_DIR`, or run as a dedicated `loadout` service user.
 - **SUID / capabilities do not propagate through the shebang.** Don't try to `chmod u+s` the script to let unprivileged users write to root-owned mount points — Linux ignores setuid on interpreted scripts. Use group permissions on the mount point, or run via `sudo` / a service unit.
 - **`PATH` hijacking.** If the system also has `/usr/local/bin` **earlier** in `PATH` than a distro-packaged binary of the same name, you can shadow things unintentionally. `loadout-pipeline` isn't a name used by any known package, so this is theoretical — but if you ever rename the installed command, check `type -a <name>` first.
 - **Upgrades don't happen automatically.** Unlike the git-checkout mode (`git pull`) or the Docker image (`docker pull`), a copied `.sh` file is frozen at the moment you installed it. Re-run `bash build/bundle.sh && sudo install -m 0755 dist/loadout-pipeline.sh /usr/local/bin/loadout-pipeline` after each update, or wrap it in a small `Makefile` / shell function so you don't forget.
@@ -286,13 +286,13 @@ docker build -t loadout-pipeline .
 docker run --rm \
     -v /path/to/isos:/isos:ro \
     -v /path/to/profiles:/jobs:ro \
-    -v /mnt/sdcard:/mnt/sdcard \
+    -v /mnt/lvol:/mnt/lvol \
     -v /path/to/.env:/opt/loadout-pipeline/.env:ro \
-    -e SD_MOUNT_POINT=/mnt/sdcard \
+    -e LVOL_MOUNT_POINT=/mnt/lvol \
     loadout-pipeline /jobs/my_games.jobs
 ```
 
-Nothing user-specific is baked into the image — archives, job profiles, and adapter credentials are all supplied at runtime via bind-mounts and environment variables. The documented env-var priority order (inline `-e` > `.env` > defaults) is preserved. See the header comment in `Dockerfile` for the full conventional mount layout (`/isos`, `/jobs`, `/mnt/sdcard`, `/tmp` for scratch). Podman works as a drop-in replacement for `docker` on Fedora / RHEL.
+Nothing user-specific is baked into the image — archives, job profiles, and adapter credentials are all supplied at runtime via bind-mounts and environment variables. The documented env-var priority order (inline `-e` > `.env` > defaults) is preserved. See the header comment in `Dockerfile` for the full conventional mount layout (`/isos`, `/jobs`, `/mnt/lvol`, `/tmp` for scratch). Podman works as a drop-in replacement for `docker` on Fedora / RHEL.
 
 ### Parity guarantee
 
@@ -317,11 +317,12 @@ All available variables (see `.env.example` for the full annotated reference):
 | `DEBUG_IND`                       | `0`                        | Set to `1` for verbose function entry/exit logging to stderr                                 |
 | `MAX_UNZIP`                       | `2`                        | Number of parallel extract-stage workers                                                     |
 | `MAX_DISPATCH`                    | `2`                        | Number of parallel dispatch-stage workers                                                    |
-| `QUEUE_DIR`                       | `/tmp/iso_pipeline_queue`  | Parent directory that holds the two sub-queues, space ledger, and worker registry           |
+| `SCRATCH_DISK_DIR`                | `/tmp`                     | Root for all scratch I/O; `EXTRACT_DIR`, `COPY_DIR`, and `QUEUE_DIR` derive from this       |
+| `QUEUE_DIR`                       | `$SCRATCH_DISK_DIR/iso_pipeline_queue`  | Parent directory that holds the two sub-queues, space ledger, and worker registry |
 | `EXTRACT_QUEUE_DIR`               | `$QUEUE_DIR/extract`       | Sub-queue of archives waiting to be copied and extracted                                     |
 | `DISPATCH_QUEUE_DIR`              | `$QUEUE_DIR/dispatch`      | Sub-queue of extracted directories waiting to be handed to an adapter                       |
-| `EXTRACT_DIR`                     | `/tmp/iso_pipeline`        | Directory where archives are extracted during processing                                     |
-| `COPY_DIR`                        | `/tmp/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`                         |
+| `EXTRACT_DIR`                     | `$SCRATCH_DISK_DIR/iso_pipeline`        | Directory where archives are extracted during processing                       |
+| `COPY_DIR`                        | `$SCRATCH_DISK_DIR/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`            |
 | `SPACE_OVERHEAD_PCT`              | `20`                       | Percent overhead added to raw byte requirement in space reservations                         |
 | `MAX_RECOVERY_ATTEMPTS`           | `3`                        | Max intra-run recovery passes after SIGKILL'd worker(s) are detected                        |
 | `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`     | Path to a file listing exact filenames (one per line) to delete from every extracted archive before dispatch; set to empty to disable |
@@ -330,11 +331,11 @@ All available variables (see `.env.example` for the full annotated reference):
 | `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                        | Initial sleep (seconds) for an extract worker after a space-reservation miss                 |
 | `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                       | Maximum sleep (seconds) for the exponential space-retry backoff                              |
 
-**SD card adapter** (`adapters/sdcard.sh`) — **implemented**
+**Local volume adapter** (`adapters/lvol.sh`) — **implemented**
 
 | Variable         | Default       | Description                                                  |
 |------------------|---------------|--------------------------------------------------------------|
-| `SD_MOUNT_POINT` | `/mnt/sdcard` | Root destination directory (any writable local path)         |
+| `LVOL_MOUNT_POINT` | `/mnt/lvol` | Root destination directory (any writable local path)         |
 
 **FTP adapter** (`adapters/ftp.sh`) — stub
 
@@ -359,7 +360,7 @@ All available variables (see `.env.example` for the full annotated reference):
 | `RCLONE_DEST_BASE` |         | Base path on the remote, prepended to the job's destination          |
 | `RCLONE_FLAGS`     |         | Extra flags passed through to `rclone copy`                          |
 
-**rsync adapter** (`adapters/rsync.sh`) — stub
+**rsync adapter** (`adapters/rsync.sh`)
 
 | Variable         | Default | Description                           |
 |------------------|---------|---------------------------------------|
@@ -372,7 +373,7 @@ All available variables (see `.env.example` for the full annotated reference):
 Environment variables set before the call always override `.env`:
 
 ```bash
-MAX_UNZIP=4 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_UNZIP=4 bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ---
@@ -394,7 +395,7 @@ A **jobs file** is a single plain-text file with one job per line. A **profile**
 bash bin/loadout-pipeline.sh
 
 # Single jobs file (built-in examples)
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 bash bin/loadout-pipeline.sh examples/ftp_server.jobs
 bash bin/loadout-pipeline.sh examples/mixed.jobs
 
@@ -429,42 +430,42 @@ An inline value always wins over `.env`, which in turn wins over the built-in de
 
 ```bash
 # .env has MAX_UNZIP=3 — this call ignores it for that variable and uses 6
-MAX_UNZIP=6 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_UNZIP=6 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
-# .env has SD_MOUNT_POINT=/mnt/sdcard — this call overrides just the mount point
-SD_MOUNT_POINT=/media/card2 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+# .env has LVOL_MOUNT_POINT=/mnt/lvol — this call overrides just the mount point
+LVOL_MOUNT_POINT=/media/card2 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # No inline variables — everything comes from .env or defaults
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
-### SD card destination
+### Local volume destination
 
-`SD_MOUNT_POINT` is the root directory the SD adapter copies into. It can be any writable local directory — an actual SD card mount, a USB drive, a NAS share, or a plain folder.
+`LVOL_MOUNT_POINT` is the root directory the lvol adapter copies into. It can be any writable local directory — an SD card, a USB drive, an NVMe/SSD/HDD enclosure, a NAS share, or a plain folder.
 
 ```bash
-# Use whatever SD_MOUNT_POINT is set to in .env (default: /mnt/sdcard)
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+# Use whatever LVOL_MOUNT_POINT is set to in .env (default: /mnt/lvol)
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
-# Real SD card at a Linux auto-mount path
-SD_MOUNT_POINT=/media/alice/SD32GB bash bin/loadout-pipeline.sh examples/sd_card.jobs
+# SD card at a Linux auto-mount path
+LVOL_MOUNT_POINT=/media/alice/SD32GB bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # USB flash drive
-SD_MOUNT_POINT=/media/alice/USB256 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+LVOL_MOUNT_POINT=/media/alice/USB256 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # NAS share already mounted locally
-SD_MOUNT_POINT=/mnt/nas/games bash bin/loadout-pipeline.sh examples/sd_card.jobs
+LVOL_MOUNT_POINT=/mnt/nas/games bash bin/loadout-pipeline.sh examples/lvol.jobs
 
-# Plain directory — no card required (useful for staging or testing)
-SD_MOUNT_POINT=/tmp/sd_test bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SD_MOUNT_POINT=~/staging/card_preview bash bin/loadout-pipeline.sh examples/sd_card.jobs
+# Plain directory — no drive required (useful for staging or testing)
+LVOL_MOUNT_POINT=/tmp/lvol_test bash bin/loadout-pipeline.sh examples/lvol.jobs
+LVOL_MOUNT_POINT=~/staging/preview bash bin/loadout-pipeline.sh examples/lvol.jobs
 
-# Run the same profile to two cards back-to-back
-SD_MOUNT_POINT=/media/alice/CARD_A bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SD_MOUNT_POINT=/media/alice/CARD_B bash bin/loadout-pipeline.sh examples/sd_card.jobs
+# Run the same profile to two drives back-to-back
+LVOL_MOUNT_POINT=/media/alice/DRIVE_A bash bin/loadout-pipeline.sh examples/lvol.jobs
+LVOL_MOUNT_POINT=/media/alice/DRIVE_B bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
-`SD_MOUNT_POINT` must be a **writable directory that already exists** before the pipeline runs. The adapter validates this at dispatch time and refuses to write outside the root via `realpath` containment check — no escape via `../` is possible.
+`LVOL_MOUNT_POINT` must be a **writable directory that already exists** before the pipeline runs. The adapter validates this at dispatch time and refuses to write outside the root via `realpath` containment check — no escape via `../` is possible.
 
 ### Parallelism
 
@@ -472,19 +473,19 @@ SD_MOUNT_POINT=/media/alice/CARD_B bash bin/loadout-pipeline.sh examples/sd_card
 
 ```bash
 # Default: 2 extract workers, 2 dispatch workers
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Fast NVMe scratch — increase extract workers
-MAX_UNZIP=6 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_UNZIP=6 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Serial extraction — one archive at a time (useful for debugging)
-MAX_UNZIP=1 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_UNZIP=1 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # More dispatch workers when the adapter is the bottleneck
-MAX_DISPATCH=4 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_DISPATCH=4 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Tune extract and dispatch independently
-MAX_UNZIP=4 MAX_DISPATCH=2 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_UNZIP=4 MAX_DISPATCH=2 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Many small archives on fast storage
 MAX_UNZIP=8 MAX_DISPATCH=8 bash bin/loadout-pipeline.sh ~/profiles/small_games.jobs
@@ -494,10 +495,10 @@ Both values must be **positive integers (≥ 1)**. The pipeline exits with code 
 
 ```bash
 # NOT accepted — exit 2 before any job runs
-MAX_UNZIP=0   bash bin/loadout-pipeline.sh examples/sd_card.jobs   # zero: no workers
-MAX_UNZIP=-1  bash bin/loadout-pipeline.sh examples/sd_card.jobs   # negative
-MAX_UNZIP=abc bash bin/loadout-pipeline.sh examples/sd_card.jobs   # non-integer
-MAX_UNZIP=    bash bin/loadout-pipeline.sh examples/sd_card.jobs   # empty string
+MAX_UNZIP=0   bash bin/loadout-pipeline.sh examples/lvol.jobs   # zero: no workers
+MAX_UNZIP=-1  bash bin/loadout-pipeline.sh examples/lvol.jobs   # negative
+MAX_UNZIP=abc bash bin/loadout-pipeline.sh examples/lvol.jobs   # non-integer
+MAX_UNZIP=    bash bin/loadout-pipeline.sh examples/lvol.jobs   # empty string
 ```
 
 ### Scratch space
@@ -520,7 +521,7 @@ QUEUE_DIR=/var/lib/loadout/queue \
 # Fast NVMe for extraction, any FS for the queue
 EXTRACT_DIR=/mnt/nvme/extract \
 COPY_DIR=/mnt/nvme/copies \
-    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+    bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Ephemeral one-off with explicit scratch — nothing persists in /tmp after the run
 EXTRACT_DIR=/tmp/myrun_extract \
@@ -537,25 +538,25 @@ QUEUE_DIR=/tmp/myrun_queue \
 
 ```bash
 # Default — 20% overhead (reserves 1.20× the raw estimate)
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Tighter budget when scratch space is measured exactly
-SPACE_OVERHEAD_PCT=5 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+SPACE_OVERHEAD_PCT=5 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Generous overhead for archives with unpredictable compression ratios
-SPACE_OVERHEAD_PCT=50 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+SPACE_OVERHEAD_PCT=50 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Disable overhead padding entirely — reserve exactly the raw estimate
-SPACE_OVERHEAD_PCT=0 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+SPACE_OVERHEAD_PCT=0 bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 Must be a **non-negative integer**. Negative or non-numeric values are rejected at startup:
 
 ```bash
 # NOT accepted — exit 2
-SPACE_OVERHEAD_PCT=-1  bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SPACE_OVERHEAD_PCT=5%  bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SPACE_OVERHEAD_PCT=    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+SPACE_OVERHEAD_PCT=-1  bash bin/loadout-pipeline.sh examples/lvol.jobs
+SPACE_OVERHEAD_PCT=5%  bash bin/loadout-pipeline.sh examples/lvol.jobs
+SPACE_OVERHEAD_PCT=    bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ### Worker recovery
@@ -564,21 +565,21 @@ SPACE_OVERHEAD_PCT=    bash bin/loadout-pipeline.sh examples/sd_card.jobs
 
 ```bash
 # Default: up to 3 recovery passes per run
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # More tolerant of crashes — large batches on unstable hardware
 MAX_RECOVERY_ATTEMPTS=5 bash bin/loadout-pipeline.sh ~/profiles/large_batch.jobs
 
 # Stop immediately after one failed recovery attempt (strict / CI mode)
-MAX_RECOVERY_ATTEMPTS=1 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_RECOVERY_ATTEMPTS=1 bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 Must be a **positive integer (≥ 1)**:
 
 ```bash
 # NOT accepted — exit 2
-MAX_RECOVERY_ATTEMPTS=0   bash bin/loadout-pipeline.sh examples/sd_card.jobs
-MAX_RECOVERY_ATTEMPTS=abc bash bin/loadout-pipeline.sh examples/sd_card.jobs
+MAX_RECOVERY_ATTEMPTS=0   bash bin/loadout-pipeline.sh examples/lvol.jobs
+MAX_RECOVERY_ATTEMPTS=abc bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ### Space-retry backoff
@@ -587,7 +588,7 @@ When an extract worker cannot reserve scratch space because sibling workers are 
 
 ```bash
 # Default: first retry after 5s, cap at 60s
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Small archives — retry more aggressively
 SPACE_RETRY_BACKOFF_INITIAL_SEC=1 \
@@ -602,16 +603,16 @@ SPACE_RETRY_BACKOFF_MAX_SEC=300 \
 # Fractional seconds are valid
 SPACE_RETRY_BACKOFF_INITIAL_SEC=0.5 \
 SPACE_RETRY_BACKOFF_MAX_SEC=30 \
-    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+    bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 Both accept **non-negative numbers**, including decimals (`1.5`, `0.25`). Negative, empty, or non-numeric values (e.g. `5s`) are rejected at startup:
 
 ```bash
 # NOT accepted — exit 2
-SPACE_RETRY_BACKOFF_INITIAL_SEC=-1  bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SPACE_RETRY_BACKOFF_INITIAL_SEC=5s  bash bin/loadout-pipeline.sh examples/sd_card.jobs
-SPACE_RETRY_BACKOFF_INITIAL_SEC=    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+SPACE_RETRY_BACKOFF_INITIAL_SEC=-1  bash bin/loadout-pipeline.sh examples/lvol.jobs
+SPACE_RETRY_BACKOFF_INITIAL_SEC=5s  bash bin/loadout-pipeline.sh examples/lvol.jobs
+SPACE_RETRY_BACKOFF_INITIAL_SEC=    bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ### Dispatch poll backoff
@@ -620,15 +621,15 @@ Dispatch workers sleep briefly when the dispatch queue is momentarily empty whil
 
 ```bash
 # Default: start at 50ms, cap at 500ms
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Lower latency — dispatch starts sooner after each extraction completes
 DISPATCH_POLL_INITIAL_MS=10 DISPATCH_POLL_MAX_MS=100 \
-    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+    bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Extraction is very slow — poll less often to avoid busy wakeups
 DISPATCH_POLL_INITIAL_MS=200 DISPATCH_POLL_MAX_MS=2000 \
-    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+    bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 Both must be **positive integers (≥ 1, in milliseconds)**. Additionally, `DISPATCH_POLL_INITIAL_MS` must not exceed `DISPATCH_POLL_MAX_MS` — the pipeline exits at startup if it does:
@@ -636,11 +637,11 @@ Both must be **positive integers (≥ 1, in milliseconds)**. Additionally, `DISP
 ```bash
 # NOT accepted — initial exceeds max, exit 2
 DISPATCH_POLL_INITIAL_MS=1000 DISPATCH_POLL_MAX_MS=500 \
-    bash bin/loadout-pipeline.sh examples/sd_card.jobs
+    bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # NOT accepted — zero or non-integer, exit 2
-DISPATCH_POLL_INITIAL_MS=0   bash bin/loadout-pipeline.sh examples/sd_card.jobs
-DISPATCH_POLL_MAX_MS=abc     bash bin/loadout-pipeline.sh examples/sd_card.jobs
+DISPATCH_POLL_INITIAL_MS=0   bash bin/loadout-pipeline.sh examples/lvol.jobs
+DISPATCH_POLL_MAX_MS=abc     bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ### Strip list
@@ -649,16 +650,16 @@ DISPATCH_POLL_MAX_MS=abc     bash bin/loadout-pipeline.sh examples/sd_card.jobs
 
 ```bash
 # Default — uses strip.list in the repo root
-bash bin/loadout-pipeline.sh examples/sd_card.jobs
+bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Custom list
-EXTRACT_STRIP_LIST=~/my_strip.list bash bin/loadout-pipeline.sh examples/sd_card.jobs
+EXTRACT_STRIP_LIST=~/my_strip.list bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Per-profile strip list
 EXTRACT_STRIP_LIST=~/profiles/ps1_strip.list bash bin/loadout-pipeline.sh ~/profiles/ps1.jobs
 
 # Disable stripping — empty value means no files are deleted
-EXTRACT_STRIP_LIST= bash bin/loadout-pipeline.sh examples/sd_card.jobs
+EXTRACT_STRIP_LIST= bash bin/loadout-pipeline.sh examples/lvol.jobs
 ```
 
 ### Debug output
@@ -667,41 +668,41 @@ EXTRACT_STRIP_LIST= bash bin/loadout-pipeline.sh examples/sd_card.jobs
 
 ```bash
 # See everything the pipeline does
-DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/sd_card.jobs
+DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 # Capture debug log to a file, normal output to the terminal
-DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/sd_card.jobs 2>pipeline.log
+DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/lvol.jobs 2>pipeline.log
 
 # Capture both streams to separate files
-DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/sd_card.jobs \
+DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/lvol.jobs \
     >pipeline_stdout.log 2>pipeline_debug.log
 
 # Debug a specific profile with a custom mount point
-DEBUG_IND=1 SD_MOUNT_POINT=/media/mycard bash bin/loadout-pipeline.sh ~/profiles/ps1.jobs
+DEBUG_IND=1 LVOL_MOUNT_POINT=/media/mycard bash bin/loadout-pipeline.sh ~/profiles/ps1.jobs
 ```
 
 ### Isolated and concurrent runs
 
-Each pipeline invocation gets its own `QUEUE_DIR`. Two runs sharing the same `QUEUE_DIR` can interfere with each other's queues, ledger, and worker registry. Use distinct `QUEUE_DIR` values whenever two runs could overlap.
+Each pipeline invocation needs its own `SCRATCH_DISK_DIR` (or at least its own `QUEUE_DIR`). Two runs sharing the same `QUEUE_DIR` can interfere with each other's queues, ledger, and worker registry.
 
 ```bash
 # Two profiles running in parallel, fully isolated
-QUEUE_DIR=/tmp/q_ps1 EXTRACT_DIR=/tmp/ex_ps1 \
+SCRATCH_DISK_DIR=/tmp/lp_ps1 \
     bash bin/loadout-pipeline.sh ~/profiles/ps1.jobs &
 
-QUEUE_DIR=/tmp/q_ps2 EXTRACT_DIR=/tmp/ex_ps2 \
+SCRATCH_DISK_DIR=/tmp/lp_ps2 \
     bash bin/loadout-pipeline.sh ~/profiles/ps2.jobs &
 
 wait
 
 # Three-way parallel batch split by platform
-QUEUE_DIR=/tmp/q_ps1 EXTRACT_DIR=/tmp/ex_ps1 SD_MOUNT_POINT=/media/card_ps1 \
+SCRATCH_DISK_DIR=/tmp/lp_ps1 LVOL_MOUNT_POINT=/media/card_ps1 \
     bash bin/loadout-pipeline.sh ~/profiles/ps1.jobs &
 
-QUEUE_DIR=/tmp/q_ps2 EXTRACT_DIR=/tmp/ex_ps2 SD_MOUNT_POINT=/media/card_ps2 \
+SCRATCH_DISK_DIR=/tmp/lp_ps2 LVOL_MOUNT_POINT=/media/card_ps2 \
     bash bin/loadout-pipeline.sh ~/profiles/ps2.jobs &
 
-QUEUE_DIR=/tmp/q_sat EXTRACT_DIR=/tmp/ex_sat SD_MOUNT_POINT=/media/card_sat \
+SCRATCH_DISK_DIR=/tmp/lp_sat LVOL_MOUNT_POINT=/media/card_sat \
     bash bin/loadout-pipeline.sh ~/profiles/saturn.jobs &
 
 wait
@@ -729,10 +730,8 @@ The precheck short-circuits any job whose content is already at the destination,
 DEBUG_IND=1 \
 MAX_UNZIP=4 \
 MAX_DISPATCH=2 \
-SD_MOUNT_POINT=/media/mycard \
-EXTRACT_DIR=/mnt/nvme/extract \
-COPY_DIR=/mnt/nvme/scratch \
-QUEUE_DIR=/var/lib/loadout/queue \
+LVOL_MOUNT_POINT=/media/mycard \
+SCRATCH_DISK_DIR=/mnt/nvme \
 SPACE_OVERHEAD_PCT=25 \
 MAX_RECOVERY_ATTEMPTS=3 \
 SPACE_RETRY_BACKOFF_INITIAL_SEC=5 \
@@ -789,19 +788,19 @@ docker build -t loadout-pipeline .
 |-----------------------------|---------|
 | `/isos` | Read-only source archives — reference these paths in `.jobs` files |
 | `/jobs` | Read-only mount for a single `.jobs` file or a profile directory of `.jobs` files |
-| `/mnt/sdcard` | Writable SD card destination (`SD_MOUNT_POINT` default) |
+| `/mnt/lvol` | Writable local volume destination (`LVOL_MOUNT_POINT` default) |
 | `/opt/loadout-pipeline/.env` | Optional credentials file (bind-mount, never bake in) |
 
-Mount your SD card on the host first (`sudo mount /dev/sdX /mnt/sdcard`), then pass that path as a volume. The container never touches the block device directly so `--privileged` is not required for the SD adapter.
+Mount your volume on the host first (e.g. `sudo mount /dev/sdX /mnt/lvol`), then pass that path as a volume. The container never touches the block device directly so `--privileged` is not required for the lvol adapter.
 
-### SD card adapter
+### Local volume adapter
 
 ```bash
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -v /path/to/profiles:/jobs:ro \
-  -e SD_MOUNT_POINT=/mnt/sdcard \
+  -e LVOL_MOUNT_POINT=/mnt/lvol \
   loadout-pipeline /jobs/my_games.jobs
 ```
 
@@ -811,7 +810,7 @@ docker run --rm \
 # Keep credentials in a mode-600 file; never pass them on the command line
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -v ~/.config/loadout/.env:/opt/loadout-pipeline/.env:ro \
   loadout-pipeline /jobs/my_games.jobs
 ```
@@ -823,9 +822,9 @@ All documented variables are accepted via `-e`. Inline flags take priority over 
 ```bash
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -e MAX_UNZIP=4 \
-  -e SD_MOUNT_POINT=/mnt/sdcard \
+  -e LVOL_MOUNT_POINT=/mnt/lvol \
   loadout-pipeline /jobs/my_games.jobs
 ```
 
@@ -869,7 +868,7 @@ Pass a profile directory instead of a single jobs file — every `*.jobs` file i
 ```bash
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -v /path/to/profiles:/jobs:ro \
   loadout-pipeline /jobs/
 ```
@@ -884,19 +883,19 @@ docker run --rm loadout-pipeline
 
 ### Concurrent isolated runs
 
-Each run needs its own `QUEUE_DIR` and `EXTRACT_DIR` to avoid collision:
+Each run needs its own `SCRATCH_DISK_DIR` (or at least its own `QUEUE_DIR`) to avoid collision:
 
 ```bash
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -e QUEUE_DIR=/tmp/q_ps1 \
   -e EXTRACT_DIR=/tmp/ex_ps1 \
   loadout-pipeline /jobs/ps1.jobs &
 
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -e QUEUE_DIR=/tmp/q_ps2 \
   -e EXTRACT_DIR=/tmp/ex_ps2 \
   loadout-pipeline /jobs/ps2.jobs &
@@ -909,7 +908,7 @@ wait
 ```bash
 docker run --rm \
   -v /path/to/isos:/isos:ro \
-  -v /mnt/sdcard:/mnt/sdcard \
+  -v /mnt/lvol:/mnt/lvol \
   -e DEBUG_IND=1 \
   loadout-pipeline /jobs/my_games.jobs 2>debug.log
 ```
@@ -927,14 +926,14 @@ Each line must start and end with `~`, with the three fields separated by `|`:
 | Field                 | Description                                              |
 |-----------------------|----------------------------------------------------------|
 | `iso_path`            | Absolute path to the `.7z` archive                       |
-| `adapter_type`        | One of: `ftp`, `hdl`, `sd`, `rclone`, `rsync`            |
+| `adapter_type`        | One of: `ftp`, `hdl`, `lvol`, `rclone`, `rsync`            |
 | `adapter_destination` | Adapter-specific path (see below)                        |
 
 **Destination field by adapter:**
 
 | Adapter  | Destination meaning                                                        |
 |----------|----------------------------------------------------------------------------|
-| `sd`     | Subdirectory under `SD_MOUNT_POINT` — e.g. `ps1/crash` → copies to `$SD_MOUNT_POINT/ps1/crash/` |
+| `lvol`     | Subdirectory under `LVOL_MOUNT_POINT` — e.g. `ps1/crash` → copies to `$LVOL_MOUNT_POINT/ps1/crash/` |
 | `ftp`    | Remote path on the FTP server                                              |
 | `hdl`    | Block device path for the PS2 HDD (e.g. `/dev/sdb`)                        |
 | `rclone` | Path relative to `RCLONE_DEST_BASE` on the configured remote               |
@@ -943,7 +942,7 @@ Each line must start and end with `~`, with the three fields separated by `|`:
 Example — all five adapters in one file:
 
 ```
-~/isos/ps1/crash.7z|sd|ps1/crash~
+~/isos/ps1/crash.7z|lvol|ps1/crash~
 ~/isos/ps1/spyro.7z|ftp|/games/ps1/spyro~
 ~/isos/ps2/ico.7z|hdl|/dev/sdb~
 ~/isos/pc/quake.7z|rclone|pc/quake~
@@ -953,9 +952,9 @@ Example — all five adapters in one file:
 Blank lines and lines starting with `#` are ignored, so you can annotate jobs files freely:
 
 ```
-# PS1 titles — SD card slot 1
-~/isos/ps1/crash.7z|sd|ps1/crash~
-~/isos/ps1/spyro.7z|sd|ps1/spyro~
+# PS1 titles — local volume
+~/isos/ps1/crash.7z|lvol|ps1/crash~
+~/isos/ps1/spyro.7z|lvol|ps1/spyro~
 
 # PS2 titles — internal HDD
 ~/isos/ps2/ico.7z|hdl|/dev/sdb~
@@ -967,7 +966,7 @@ Blank lines and lines starting with `#` are ignored, so you can annotate jobs fi
 
 | Adapter  | Key      | Script                 | Status          | Env vars required                                                            |
 |----------|----------|------------------------|-----------------|------------------------------------------------------------------------------|
-| SD card  | `sd`     | `adapters/sdcard.sh`   | **Implemented** | `SD_MOUNT_POINT`                                                              |
+| Local vol  | `lvol`     | `adapters/lvol.sh`   | **Implemented** | `LVOL_MOUNT_POINT`                                                              |
 | FTP      | `ftp`    | `adapters/ftp.sh`      | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                               |
 | HDL dump | `hdl`    | `adapters/hdl_dump.sh` | Stub            | `HDL_DUMP_BIN`                                                               |
 | rclone   | `rclone` | `adapters/rclone.sh`   | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                          |
@@ -975,7 +974,7 @@ Blank lines and lines starting with `#` are ignored, so you can annotate jobs fi
 
 Stub adapters log what they would do but do not transfer any files. Each script contains implementation notes and a `TODO` marker showing where to add real transfer logic.
 
-The SD card adapter (`adapters/sdcard.sh`) is fully implemented: it validates `SD_MOUNT_POINT`, creates the destination directory, and uses `rsync -a` (falling back to `cp -r` if rsync is unavailable) to copy the extracted contents. `SD_MOUNT_POINT` can be any writable local directory — an actual SD card, a USB drive, a NAS mount, or a plain folder.
+The local volume adapter (`adapters/lvol.sh`) is fully implemented: it validates `LVOL_MOUNT_POINT`, creates the destination directory, and uses `rsync -a` (falling back to `cp -r` if rsync is unavailable) to copy the extracted contents. `LVOL_MOUNT_POINT` can be any writable local directory — an SD card, a USB drive, an NVMe/SSD/HDD enclosure, a NAS mount, or a plain folder.
 
 To add a new adapter: create `adapters/<name>.sh`, add a matching case to `lib/dispatch.sh` and `lib/precheck.sh`, and extend the regex in `lib/jobs.sh`.
 
@@ -1006,11 +1005,9 @@ To use a different file, set `EXTRACT_STRIP_LIST=/path/to/your.list` in `.env` o
 
 - **The pipeline trusts its `.env` and its jobs files — treat both as code.** Do not point the pipeline at jobs files or profile directories from untrusted sources. The job-line validator rejects shell metacharacters and `..` path traversal, but a jobs file is ultimately an instruction list and should be controlled by you.
 - **Do not run as root.** The FTP and HDL adapters may require elevated access to block devices; in those cases, run as a dedicated service user with the minimum required permissions, not as the superuser.
-- **Default scratch paths are under `/tmp`, which is world-writable.** For production use, override `QUEUE_DIR`, `EXTRACT_DIR`, and `COPY_DIR` to paths you own with mode `0700`:
+- **Default scratch paths are under `/tmp`, which is world-writable.** For production use, set `SCRATCH_DISK_DIR` to a path you own with mode `0700`:
   ```bash
-  QUEUE_DIR=/var/lib/loadout-pipeline/queue \
-  EXTRACT_DIR=/var/lib/loadout-pipeline/extract \
-  COPY_DIR=/var/lib/loadout-pipeline/scratch \
+  SCRATCH_DISK_DIR=/var/lib/loadout-pipeline \
       bash bin/loadout-pipeline.sh ~/profiles/my_collection.jobs
   ```
   The pipeline validates that these directories are not symlinks and are owned by the current user before writing to them.
@@ -1060,7 +1057,7 @@ The integration suite exercises every scenario on a **real kernel substrate**: a
 bash test/integration/launch.sh
 ```
 
-This builds a privileged container, generates synthetic fixtures, provisions all substrates, and runs **27 integration scenarios**. The suite always exits non-zero because four stub-adapter scenarios (ftp, hdl_dump, rclone, rsync) intentionally hard-fail until real implementations land — their failures appear in the output with an explanatory message. All other scenarios are expected to pass.
+This builds a privileged container, generates synthetic fixtures, provisions all substrates, and runs **27 integration scenarios**. The suite always exits non-zero because three stub-adapter scenarios (ftp, hdl_dump, rclone) intentionally hard-fail until real implementations land — their failures appear in the output with an explanatory message. All other scenarios are expected to pass.
 
 **Notes:**
 - On WSL2, the `loop` and `vfat` kernel modules must be available. A stock distro-provided kernel (`uname -r` containing `-microsoft`) includes both; a custom kernel may not.
@@ -1070,7 +1067,27 @@ This builds a privileged container, generates synthetic fixtures, provisions all
 
 ## Architecture
 
-See `docs/architecture.md` for the full pipeline diagram and `ai_agent_entry_point.md` for AI agent onboarding.
+See `docs/architecture.md` for the full pipeline diagram, [`docs/requirements/`](docs/requirements/index.md) for per-function contracts, and `ai_agent_entry_point.md` for AI agent onboarding.
+
+---
+
+## Backwards compatibility
+
+The pipeline's **public interface surface is frozen**. You can rely on the following being stable across future versions:
+
+- Every environment variable documented in the [Configuration](#configuration) section above and declared in `lib/config.sh`
+- The `bin/loadout-pipeline.sh <jobs_file_or_profile_dir>` calling convention
+- The job-file syntax `~<src>|<adapter>|<dest>~` and the adapter keys `ftp`, `hdl`, `lvol`, `rclone`, `rsync`
+- The `.env` loader semantics (`KEY=value`, `#` comments, caller env wins over file)
+- The strip list file format
+- The adapter contract — every `adapters/<name>.sh` takes `<src> <dest>` as positional arguments
+
+Additions are fair game; renames, removals, and behavior changes to any of the above are not. Two deliberate exemptions:
+
+- **Test hooks** such as `SPACE_AVAIL_OVERRIDE_BYTES` and `ALLOW_STUB_ADAPTERS` are test scaffolding, not user controls — do not rely on them from production configs.
+- **The `tools/perf/` framework** is new and may churn until it has been exercised against real hardware.
+
+The authoritative policy, including the full frozen-var list, exemptions, and the "how to add without breaking" checklist, lives in [`ai_agent_entry_point.md`](ai_agent_entry_point.md#backwards-compatibility-required).
 
 ---
 

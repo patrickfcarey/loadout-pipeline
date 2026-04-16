@@ -37,7 +37,7 @@ queue_init() {
 #
 # Parameters
 #   $1  qdir      — path to the queue directory
-#   $2  input_job — the job string to enqueue (e.g. "~path/to/game.7z|sd|dest~")
+#   $2  input_job — the job string to enqueue (e.g. "~path/to/game.7z|lvol|dest~")
 #
 # Returns     : 0 always
 # Modifies    : filesystem — creates one file named "<nanosec>.<pid>.job" in qdir

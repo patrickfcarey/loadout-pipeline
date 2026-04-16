@@ -151,7 +151,7 @@ header "Int Negative N12: assert_queue_empty with a leftover .job file"
 
 N12_QUEUE="$INT_QUEUE/n12"
 mkdir -p "$N12_QUEUE"
-printf '~%s/small.7z|sd|n12/small~\n' "$INT_FIXTURES" > "$N12_QUEUE/leftover.job"
+printf '~%s/small.7z|lvol|n12/small~\n' "$INT_FIXTURES" > "$N12_QUEUE/leftover.job"
 
 neg_check "assert_queue_empty: .job file is present" \
     assert_queue_empty "$N12_QUEUE"

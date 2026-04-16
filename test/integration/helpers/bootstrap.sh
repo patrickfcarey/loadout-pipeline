@@ -11,7 +11,7 @@
 #   $INT_EXTRACT          — 256 MB tmpfs, acts as EXTRACT_DIR/COPY_DIR
 #   $INT_SCARCE           — 6 MB tmpfs, forces real ENOSPC for scarcity tests
 #   $INT_QUEUE            — queue dir on the ext4 container FS (flock needs real FS)
-#   $INT_SD_IMG           — backing file for the vfat SD card loopback
+#   $INT_SD_IMG           — backing file for the vfat local volume loopback
 #   $INT_SD_LOOP          — /dev/loopN allocated by losetup
 #   $INT_SD_VFAT          — mountpoint for the vfat filesystem
 #   $INT_FTP_ROOT         — pure-ftpd chroot
@@ -32,7 +32,7 @@
 
 # Fail early if sourced outside the integration container. /etc sentinel
 # is created by the Dockerfile. This guard prevents a careless host-side
-# run from losetup-ing the developer's real SD card.
+# run from losetup-ing the developer's real local volume.
 if [[ ! -f /etc/loadout-integration-container ]]; then
     echo "[bootstrap] ERROR: not running in the integration container." >&2
     echo "[bootstrap]        Run via test/integration/launch.sh instead." >&2
@@ -109,10 +109,10 @@ _int_setup_queue() {
     _int_push_teardown "rm -rf '$INT_QUEUE'"
 }
 
-# ── substrate: $INT_SD_VFAT — loop-mounted vfat SD card ─────────────────────
+# ── substrate: $INT_SD_VFAT — loop-mounted vfat local volume ─────────────────────
 #
 # Reproduces a real PS2 SD-card target: 64 MB FAT32 filesystem on a
-# loopback file. The sdcard adapter will copy files into this mount just
+# loopback file. The lvol adapter will copy files into this mount just
 # like it would onto a real card. Loopback via losetup keeps us off real
 # hardware while still exercising the kernel's vfat driver end-to-end.
 

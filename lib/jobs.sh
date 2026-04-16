@@ -109,10 +109,10 @@ load_jobs() {
         #
         # Store the pattern in a variable. bash recommends this when the ERE
         # contains spaces so the pattern is not subject to word-splitting.
-        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|sd|rclone|rsync)\|[A-Za-z0-9_./-]+~$'
+        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+~$'
         if [[ ! "$line" =~ $_job_regex ]]; then
             log_error "invalid job at line $lineno: '$line'"
-            log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|sd|rclone|rsync)|destination~"
+            log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|lvol|rclone|rsync)|destination~"
             log_error "iso_path chars : letters, digits, _ . / - space ( )"
             log_error "destination chars: letters, digits, _ . / -"
             return 1
@@ -120,7 +120,7 @@ load_jobs() {
 
         # Reject path-traversal attempts in either the iso path or the destination
         # field. A crafted destination like "../../../etc/cron.d" would otherwise
-        # escape adapter sandbox roots (e.g. SD_MOUNT_POINT) when joined with them.
+        # escape adapter sandbox roots (e.g. LVOL_MOUNT_POINT) when joined with them.
         # parse_job_line is available because job_format.sh is sourced at the top
         # of this file. Using it here consolidates parsing in one place.
         #

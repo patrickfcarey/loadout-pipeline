@@ -249,11 +249,11 @@ _u_run_subshell < <(
 
     # Push three jobs with a small inter-push sleep so timestamp-based
     # filenames are guaranteed distinct on hosts with low %N resolution.
-    queue_push "$R4_QDIR" "~/a/1.7z|sd|d1~"
+    queue_push "$R4_QDIR" "~/a/1.7z|lvol|d1~"
     sleep 0.01
-    queue_push "$R4_QDIR" "~/a/2.7z|sd|d2~"
+    queue_push "$R4_QDIR" "~/a/2.7z|lvol|d2~"
     sleep 0.01
-    queue_push "$R4_QDIR" "~/a/3.7z|sd|d3~"
+    queue_push "$R4_QDIR" "~/a/3.7z|lvol|d3~"
 
     count=$(find "$R4_QDIR" -maxdepth 1 -name "*.job" | wc -l)
     if [[ "$count" -eq 3 ]]; then
@@ -265,9 +265,9 @@ _u_run_subshell < <(
     j1=$(queue_pop "$R4_QDIR")
     j2=$(queue_pop "$R4_QDIR")
     j3=$(queue_pop "$R4_QDIR")
-    if [[ "$j1" == "~/a/1.7z|sd|d1~" && \
-          "$j2" == "~/a/2.7z|sd|d2~" && \
-          "$j3" == "~/a/3.7z|sd|d3~" ]]; then
+    if [[ "$j1" == "~/a/1.7z|lvol|d1~" && \
+          "$j2" == "~/a/2.7z|lvol|d2~" && \
+          "$j3" == "~/a/3.7z|lvol|d3~" ]]; then
         echo "PASS queue_pop returned jobs in FIFO order"
     else
         echo "FAIL queue_pop order: 1=$j1 2=$j2 3=$j3"
@@ -321,7 +321,7 @@ _u_run_subshell < <(
     fi
 
     # Round trip: begin writes a line, end removes it.
-    worker_job_begin 11111 "~/a/game.7z|sd|d~"
+    worker_job_begin 11111 "~/a/game.7z|lvol|d~"
     if grep -q "^11111 " "$reg"; then
         echo "PASS begin wrote pid entry"
     else
@@ -342,8 +342,8 @@ _u_run_subshell < <(
     fi
 
     # Double-begin for the same pid: the second call must replace the first.
-    worker_job_begin 22222 "~/a/first.7z|sd|d~"
-    worker_job_begin 22222 "~/a/second.7z|sd|d~"
+    worker_job_begin 22222 "~/a/first.7z|lvol|d~"
+    worker_job_begin 22222 "~/a/second.7z|lvol|d~"
     entries=$(grep -c "^22222 " "$reg")
     if [[ "$entries" -eq 1 ]]; then
         echo "PASS double-begin produced exactly one entry"
@@ -351,7 +351,7 @@ _u_run_subshell < <(
         echo "FAIL double-begin produced $entries entries (expected 1)"
     fi
     recovered=$(worker_registry_recover)
-    if [[ "$recovered" == "~/a/second.7z|sd|d~" ]]; then
+    if [[ "$recovered" == "~/a/second.7z|lvol|d~" ]]; then
         echo "PASS double-begin: second call wins"
     else
         echo "FAIL recovered=$recovered (expected second.7z)"
@@ -366,7 +366,7 @@ _u_run_subshell < <(
     fi
 
     # Consecutive-spaces regression guard (documented in worker_registry.sh).
-    spaces_job="~/games/Two  Spaces  Game.7z|sd|dest~"
+    spaces_job="~/games/Two  Spaces  Game.7z|lvol|dest~"
     worker_job_begin 33333 "$spaces_job"
     out=$(worker_registry_recover)
     if [[ "$out" == "$spaces_job" ]]; then

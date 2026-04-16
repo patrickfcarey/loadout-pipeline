@@ -2,7 +2,7 @@
 # test/integration/suites/13_resume_planner.sh
 #
 # Resume planner (lib/resume_planner.sh) behaviour against a real
-# loop-mounted vfat SD card. Exercises the "cold restart after power
+# loop-mounted vfat local volume. Exercises the "cold restart after power
 # outage" code path end-to-end: jobs whose content already sits on the
 # vfat substrate must be dropped by the planner before any worker forks,
 # and the files on disk must not be touched.
@@ -33,13 +33,13 @@ t13a_pre_epoch=$(stat -c '%Y' "$INT_SD_VFAT/t13a/dest1/small.iso")
 
 # Jobs: one already satisfied (dropped by planner), one empty (processed).
 {
-    printf '~%s/small.7z|sd|t13a/dest1~\n' "$INT_FIXTURES"
-    printf '~%s/small.7z|sd|t13a/dest2~\n' "$INT_FIXTURES"
+    printf '~%s/small.7z|lvol|t13a/dest1~\n' "$INT_FIXTURES"
+    printf '~%s/small.7z|lvol|t13a/dest2~\n' "$INT_FIXTURES"
 } > "$T13A_JOBS"
 
 set +e
 EXTRACT_DIR="$T13A_EXTRACT" QUEUE_DIR="$INT_QUEUE/t13a" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T13A_JOBS" >"$T13A_LOG" 2>&1
 t13a_rc=$?
 set -e
@@ -74,11 +74,11 @@ mkdir -p "$T13B_EXTRACT" "$INT_SD_VFAT/t13b/dest"
 # classify the job as "not satisfied" and let the pipeline re-extract.
 printf 'partial bin byte payload\n' > "$INT_SD_VFAT/t13b/dest/multi.bin"
 
-printf '~%s/multi.7z|sd|t13b/dest~\n' "$INT_FIXTURES" > "$T13B_JOBS"
+printf '~%s/multi.7z|lvol|t13b/dest~\n' "$INT_FIXTURES" > "$T13B_JOBS"
 
 set +e
 EXTRACT_DIR="$T13B_EXTRACT" QUEUE_DIR="$INT_QUEUE/t13b" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T13B_JOBS" >"$T13B_LOG" 2>&1
 t13b_rc=$?
 set -e
@@ -112,12 +112,12 @@ mkdir -p "$T13C_EXTRACT" "$INT_SD_VFAT/t13c/dest"
 ( cd "$INT_SD_VFAT/t13c/dest" && 7z x -y "$INT_FIXTURES/small.7z" >/dev/null )
 t13c_pre_epoch=$(stat -c '%Y' "$INT_SD_VFAT/t13c/dest/small.iso")
 
-printf '~%s/small.7z|sd|t13c/dest~\n' "$INT_FIXTURES" > "$T13C_JOBS"
+printf '~%s/small.7z|lvol|t13c/dest~\n' "$INT_FIXTURES" > "$T13C_JOBS"
 
 set +e
 RESUME_PLANNER_IND=0 \
 EXTRACT_DIR="$T13C_EXTRACT" QUEUE_DIR="$INT_QUEUE/t13c" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T13C_JOBS" >"$T13C_LOG" 2>&1
 t13c_rc=$?
 set -e

@@ -36,7 +36,7 @@ R3_OUT=$(
     source "$ROOT_DIR/lib/queue.sh"
     set +e
     queue_pop "$R3_QDIR" >/dev/null; echo "empty_rc=$?"
-    queue_push "$R3_QDIR" "~$INT_FIXTURES/small.7z|sd|r3/pop~"
+    queue_push "$R3_QDIR" "~$INT_FIXTURES/small.7z|lvol|r3/pop~"
     content=$(queue_pop "$R3_QDIR"); echo "pop_rc=$?"
     echo "pop_content=$content"
 )
@@ -48,7 +48,7 @@ else
 fi
 
 if grep -q '^pop_rc=0$' <<< "$R3_OUT" \
-   && grep -q "pop_content=~$INT_FIXTURES/small.7z|sd|r3/pop~" <<< "$R3_OUT"; then
+   && grep -q "pop_content=~$INT_FIXTURES/small.7z|lvol|r3/pop~" <<< "$R3_OUT"; then
     pass "R3: queue_pop returned pushed content byte-exact"
 else
     fail "R3: queue_pop content mismatch: $R3_OUT"

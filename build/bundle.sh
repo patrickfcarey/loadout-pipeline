@@ -32,7 +32,7 @@ _rewrite_calls() {
         -e 's|bash "\$ROOT_DIR/lib/precheck\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode precheck|g' \
         -e 's|bash "\$ROOT_DIR/adapters/ftp\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_ftp|g' \
         -e 's|bash "\$ROOT_DIR/adapters/hdl_dump\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_hdl_dump|g' \
-        -e 's|bash "\$ROOT_DIR/adapters/sdcard\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_sdcard|g' \
+        -e 's|bash "\$ROOT_DIR/adapters/lvol\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_lvol|g' \
         -e 's|bash "\$ROOT_DIR/adapters/rclone\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_rclone|g' \
         -e 's|bash "\$ROOT_DIR/adapters/rsync\.sh"|bash "$__LP_BUNDLE_PATH" __lp_mode adapter_rsync|g'
 }
@@ -159,7 +159,7 @@ if [[ "${1:-}" == "__lp_mode" ]]; then
         precheck)         __lp_main_precheck         "$@"; exit $? ;;
         adapter_ftp)      __lp_main_adapter_ftp      "$@"; exit $? ;;
         adapter_hdl_dump) __lp_main_adapter_hdl_dump "$@"; exit $? ;;
-        adapter_sdcard)   __lp_main_adapter_sdcard   "$@"; exit $? ;;
+        adapter_lvol)   __lp_main_adapter_lvol   "$@"; exit $? ;;
         adapter_rclone)   __lp_main_adapter_rclone   "$@"; exit $? ;;
         adapter_rsync)    __lp_main_adapter_rsync    "$@"; exit $? ;;
         *) echo "loadout-pipeline: unknown internal mode '$__lp_submode'" >&2; exit 2 ;;
@@ -203,7 +203,7 @@ inline_forked_file lib/dispatch.sh        __lp_main_dispatch
 inline_forked_file lib/precheck.sh        __lp_main_precheck
 inline_forked_file adapters/ftp.sh        __lp_main_adapter_ftp
 inline_forked_file adapters/hdl_dump.sh   __lp_main_adapter_hdl_dump
-inline_forked_file adapters/sdcard.sh     __lp_main_adapter_sdcard
+inline_forked_file adapters/lvol.sh     __lp_main_adapter_lvol
 inline_forked_file adapters/rclone.sh     __lp_main_adapter_rclone
 inline_forked_file adapters/rsync.sh      __lp_main_adapter_rsync
 

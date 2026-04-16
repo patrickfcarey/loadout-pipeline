@@ -44,11 +44,11 @@ else
     T21_SD="$T21_DIR/sd"
     mkdir -p "$T21_SD"
 
-    printf '~%s|sd|t21/game~\n' "$REAL_ARCHIVE" > "$T21_JOBS"
+    printf '~%s|lvol|t21/game~\n' "$REAL_ARCHIVE" > "$T21_JOBS"
 
     set +e
     EXTRACT_DIR="$T21_EXTRACT" QUEUE_DIR="$INT_QUEUE/t21" \
-    SD_MOUNT_POINT="$T21_SD" \
+    LVOL_MOUNT_POINT="$T21_SD" \
     bash "$PIPELINE" "$T21_JOBS" >"$T21_LOG" 2>&1
     t21_rc=$?
     set -e

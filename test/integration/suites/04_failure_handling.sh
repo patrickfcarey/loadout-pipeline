@@ -26,14 +26,14 @@ mkdir -p "$T8_DIR" "$T8_COPY" "$T8_EXTRACT"
 # the EXIT trap a real failure to clean up.
 head -c 128 "$INT_FIXTURES/small.7z" > "$T8_BAD"
 
-printf '~%s|sd|t8/bad~\n' "$T8_BAD" > "$T8_JOBS"
+printf '~%s|lvol|t8/bad~\n' "$T8_BAD" > "$T8_JOBS"
 
 set +e
 MAX_UNZIP=1 \
 COPY_DIR="$T8_COPY" \
 EXTRACT_DIR="$T8_EXTRACT" \
 QUEUE_DIR="$T8_QUEUE" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T8_JOBS" >"$T8_LOG" 2>&1
 t8_rc=$?
 set -e
@@ -84,7 +84,7 @@ mkdir -p "$T9_DIR" "$T9_COPY" "$T9_EXTRACT"
 
 # Use the large archive so the 7z process has enough runtime for the
 # watcher to find and kill it before extraction completes.
-printf '~%s/large.7z|sd|t9/large~\n' "$INT_FIXTURES" > "$T9_JOBS"
+printf '~%s/large.7z|lvol|t9/large~\n' "$INT_FIXTURES" > "$T9_JOBS"
 
 # Fire a watcher that kills 7z ~0.2s after it first appears. Real SIGKILL
 # on 7z: extract.sh sees the child die and exits non-zero, but its own
@@ -96,7 +96,7 @@ MAX_UNZIP=1 \
 COPY_DIR="$T9_COPY" \
 EXTRACT_DIR="$T9_EXTRACT" \
 QUEUE_DIR="$T9_QUEUE" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T9_JOBS" >"$T9_LOG" 2>&1
 t9_rc=$?
 set -e
@@ -118,7 +118,7 @@ MAX_UNZIP=1 \
 COPY_DIR="$T9_COPY" \
 EXTRACT_DIR="$T9_EXTRACT" \
 QUEUE_DIR="$T9_QUEUE" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T9_JOBS" >"$INT_STATE/t9_rerun.log" 2>&1
 t9_rerun_rc=$?
 set -e
