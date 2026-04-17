@@ -259,6 +259,38 @@ _recover_orphans() {
 # workers_start — top-level orchestrator
 # =============================================================================
 
+# ─── Progress monitor metadata ────────────────────────────────────────────────
+
+_write_pipeline_meta() {
+    local meta_dir="$QUEUE_DIR/.meta"
+    mkdir -p "$meta_dir"
+    local tmp="$meta_dir/pipeline_info.tmp.$$"
+    {
+        printf 'pid=%s\n' "$$"
+        printf 'start_time=%s\n' "$(date +%s)"
+        printf 'total_jobs=%s\n' "$1"
+        printf 'skipped_jobs=%s\n' "$2"
+        printf 'effective_jobs=%s\n' "$(( $1 - $2 ))"
+        printf 'jobs_file=%s\n' "$(basename "${JOBS_FILE:-unknown}")"
+        printf 'max_extract=%s\n' "$MAX_UNZIP"
+        printf 'max_dispatch=%s\n' "$MAX_DISPATCH"
+    } > "$tmp"
+    mv "$tmp" "$meta_dir/pipeline_info"
+    printf '0\n' > "$meta_dir/completed"
+    printf '0\n' > "$meta_dir/errors"
+}
+
+_meta_increment() {
+    local file="$QUEUE_DIR/.meta/$1"
+    [[ -f "$file" ]] || return 0
+    (
+        flock -x 9
+        local val
+        val="$(cat "$file" 2>/dev/null)" || val=0
+        printf '%d\n' "$(( val + 1 ))" > "$file"
+    ) 9>"$file.lock"
+}
+
 # ─── workers_start ────────────────────────────────────────────────────────────
 # Top-level orchestrator for the two-stage worker pipeline. Sweeps and claims
 # the scratch spool, initialises all shared data structures, enqueues every
@@ -315,7 +347,10 @@ workers_start() {
     # adapter destination before any worker forks. Runs in the quiescent
     # window between _pipeline_run_init and the enqueue loop, so the
     # destination cannot change underfoot. Disabled path is a no-op.
+    local _meta_total=${#JOBS[@]}
     resume_plan
+    local _meta_skipped=$(( _meta_total - ${#JOBS[@]} ))
+    _write_pipeline_meta "$_meta_total" "$_meta_skipped"
 
     local job
     for job in "${JOBS[@]}"; do
@@ -507,7 +542,7 @@ unzip_worker() {
                 break
                 ;;
         esac
-        worker_job_begin "$BASHPID" "$job"
+        worker_job_begin "$BASHPID" "extract" "$job"
         job_rc=0
         _unzip_handle_job "$job" _space_retry_backoff_seconds || job_rc=$?
         # Always unregister after handling — even for re-queued jobs. The job
@@ -515,7 +550,7 @@ unzip_worker() {
         worker_job_end "$BASHPID"
         case "$job_rc" in
             0|75) : ;;   # success or re-queued — not a counted failure
-            *)    (( fail_count++ )) || true ;;
+            *)    (( fail_count++ )) || true; _meta_increment errors ;;
         esac
     done
 
@@ -613,10 +648,15 @@ dispatch_worker() {
         case "$pop_rc" in
             0)
                 poll_delay_ms="${DISPATCH_POLL_INITIAL_MS:-50}"   # reset on successful pop
+                worker_job_begin "$BASHPID" "dispatch" "$job"
                 if ! _dispatch_handle_job "$job"; then
                     log_error "dispatch failed: $job"
                     (( fail_count++ )) || true
+                    _meta_increment errors
+                else
+                    _meta_increment completed
                 fi
+                worker_job_end "$BASHPID"
                 continue
                 ;;
             1) : ;;                       # queue empty — fall through to sentinel check
@@ -633,5 +673,6 @@ dispatch_worker() {
         (( poll_delay_ms = poll_delay_ms * 2 > poll_max_ms ? poll_max_ms : poll_delay_ms * 2 ))
     done
 
+    worker_job_end "$BASHPID"
     return $(( fail_count > 0 ? 1 : 0 ))
 }

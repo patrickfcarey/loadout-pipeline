@@ -24,18 +24,23 @@
 #
 # Adapter-specific "already present" logic
 #   lvol — real filesystem check against LVOL_MOUNT_POINT/$dest/<each member>
-#   ftp  — STUB: always returns "not present". Real impl would use `lftp ls`
-#          or `curl --list-only` to check the remote directory.
-#   hdl  — STUB: always returns "not present". Real impl would use
-#          `hdl_dump toc $dest` and grep for an archive-derived game title.
+#   ftp  — uses curl --list-only against FTP_HOST to see whether every archive
+#          member already exists in the remote destination directory.
+#   hdl  — uses `hdl_dump toc $HDL_INSTALL_TARGET` and grep's the operator-
+#          supplied PS2 title.
+#   rclone — uses `rclone lsf` against RCLONE_REMOTE/$dest and checks every
+#          archive member.
+#   rsync — STUB: always returns "not present". Real impl would ssh to
+#          RSYNC_HOST and stat each member, or use `rsync --dry-run`.
 #
-# Both stubs are pessimistic by design: they always proceed with work rather
-# than risk a false skip.
+# Remote-adapter checks are pessimistic: if the required tooling/config is
+# absent they fall through to "not present" rather than risk a false skip.
 # =============================================================================
 set -euo pipefail
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$ROOT_DIR/lib/logging.sh"
 source "$ROOT_DIR/lib/strip_list.sh"
+source "$ROOT_DIR/lib/job_format.sh"
 
 adapter="$1"
 archive="$2"
@@ -157,17 +162,110 @@ case "$adapter" in
         already_present=$all_there
         ;;
     ftp)
-        # TODO: real check with lftp / curl. Must verify every member of
-        # $contained is present at the remote $dest.
-        already_present=0
+        if [[ -z "${FTP_HOST:-}" ]] || ! command -v curl >/dev/null 2>&1; then
+            already_present=0
+        else
+            port="${FTP_PORT:-21}"
+            dest_clean="${dest#/}"
+            set +e
+            remote_listing=$(curl -s --list-only \
+                -u "${FTP_USER:-}:${FTP_PASS:-}" \
+                "ftp://${FTP_HOST}:${port}/${dest_clean}/" \
+                2>/dev/null)
+            set -e
+            if [[ -z "$remote_listing" ]]; then
+                already_present=0
+            else
+                all_there=1
+                while IFS= read -r f; do
+                    [[ -z "$f" ]] && continue
+                    if ! _precheck_member_is_safe "$f"; then
+                        log_warn "precheck: archive $archive contains unsafe member path — refusing to probe: $f"
+                        exit 2
+                    fi
+                    strip_list_contains "$f" && continue
+                    if ! echo "$remote_listing" | grep -qF "$(basename "$f")"; then
+                        all_there=0
+                        break
+                    fi
+                done <<< "$contained"
+                already_present=$all_there
+            fi
+        fi
         ;;
     hdl)
-        # TODO: real check using `hdl_dump toc $dest | grep <title>`.
-        already_present=0
+        # The hdl destination_spec is two pipe-delimited fields:
+        #   <cd|dvd>|<title>
+        # parse_hdl_destination validates the shape and emits the fields
+        # newline-separated on stdout. load_jobs already rejects malformed
+        # hdl jobs at load time, but precheck may be invoked in isolation
+        # (e.g. from an integration test), so we re-validate here.
+        #
+        # The hdl_dump install target (e.g. hdd0:) is an operator-wide env var
+        # set by the wrapper, not a per-job field. hdl_dump itself resolves
+        # that target via the operator's real ~/.hdl_dump.conf, so this
+        # precheck does not touch HOME.
+        hdl_parsed=$(parse_hdl_destination "$dest") || {
+            log_warn "precheck: malformed hdl destination: $dest"
+            exit 2
+        }
+        { read -r hdl_format; read -r hdl_title; } <<< "$hdl_parsed"
+
+        hdl_bin="${HDL_DUMP_BIN:-hdl_dump}"
+        hdl_target="${HDL_INSTALL_TARGET:-}"
+        if [[ -z "$hdl_target" ]] || ! command -v "$hdl_bin" >/dev/null 2>&1; then
+            # Missing binary or target — same silent fall-through as rclone/ftp
+            # precheck when the adapter's tooling/config is absent.
+            already_present=0
+        else
+            set +e
+            hdl_toc=$("$hdl_bin" toc "$hdl_target" 2>/dev/null)
+            set -e
+            if echo "$hdl_toc" | grep -qF "$hdl_title"; then
+                already_present=1
+            else
+                already_present=0
+            fi
+        fi
         ;;
     rclone)
-        # TODO: real check using `rclone ls $RCLONE_REMOTE$RCLONE_DEST_BASE/$dest`.
-        already_present=0
+        if [[ -z "${RCLONE_REMOTE:-}" ]] || ! command -v rclone >/dev/null 2>&1; then
+            already_present=0
+        else
+            dest_base="${RCLONE_DEST_BASE:-}"
+            dest_base="${dest_base%/}"
+            dest_clean="${dest#/}"
+            if [[ -n "$dest_base" ]]; then
+                rclone_target="${RCLONE_REMOTE}:${dest_base}/${dest_clean}"
+            else
+                rclone_target="${RCLONE_REMOTE}:${dest_clean}"
+            fi
+            rclone_args=()
+            if [[ -n "${RCLONE_CONFIG:-}" ]]; then
+                rclone_args+=(--config "$RCLONE_CONFIG")
+            fi
+            set +e
+            remote_files=$(rclone lsf "${rclone_args[@]}" "$rclone_target" 2>/dev/null)
+            set -e
+            if [[ -z "$remote_files" ]]; then
+                already_present=0
+            else
+                all_there=1
+                while IFS= read -r f; do
+                    [[ -z "$f" ]] && continue
+                    if ! _precheck_member_is_safe "$f"; then
+                        log_warn "precheck: archive $archive contains unsafe member path — refusing to probe: $f"
+                        exit 2
+                    fi
+                    strip_list_contains "$f" && continue
+                    if ! echo "$remote_files" | grep -qF "$f"; then
+                        all_there=0
+                        break
+                    fi
+                done <<< "$contained"
+                already_present=$all_there
+            fi
+        fi
         ;;
     rsync)
         # TODO: real check — ssh to RSYNC_HOST and stat each member, or use

@@ -24,9 +24,9 @@ log_trace "→ dispatch.sh  adapter=$adapter  src=$src  dest=$dest"
 # To add a new credential (e.g. FTP_TLS) simply append it to the relevant
 # array — every other adapter automatically strips it.
 readonly _FTP_ENV_VARS=(FTP_HOST FTP_USER FTP_PASS FTP_PORT)
-readonly _HDL_ENV_VARS=(HDL_DUMP_BIN)
+readonly _HDL_ENV_VARS=(HDL_DUMP_BIN HDL_HOST_DEVICE HDL_INSTALL_TARGET)
 readonly _LVOL_ENV_VARS=(LVOL_MOUNT_POINT)
-readonly _RCLONE_ENV_VARS=(RCLONE_REMOTE RCLONE_DEST_BASE RCLONE_FLAGS)
+readonly _RCLONE_ENV_VARS=(RCLONE_REMOTE RCLONE_DEST_BASE RCLONE_FLAGS RCLONE_CONFIG)
 readonly _RSYNC_ENV_VARS=(RSYNC_DEST_BASE RSYNC_HOST RSYNC_USER RSYNC_SSH_PORT RSYNC_FLAGS)
 
 # ─── _build_strip_args ────────────────────────────────────────────────────────

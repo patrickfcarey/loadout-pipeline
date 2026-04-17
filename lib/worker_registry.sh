@@ -18,9 +18,10 @@
 #
 # FORMAT
 # ------
-# One line per active job: "<worker_pid> <job_string>\n"
-# Space separates the PID from the rest of the line; job strings start with
-# '~' and cannot contain newlines so the remainder-of-line is always the job.
+# One line per active job: "<worker_pid> <type> <job_string>\n"
+# Type is "extract" or "dispatch". Space separates the fields; job strings
+# start with '~' and cannot contain newlines so the remainder-of-line after
+# the second space is always the job.
 #
 # LOCK
 # ----
@@ -86,23 +87,25 @@ worker_registry_init() {
 # (safety guard against a worker calling begin twice without an intervening end).
 #
 # Parameters
-#   $1  pid — BASHPID of the worker process claiming the job; used as the
-#             registry key for lookup by worker_job_end and worker_registry_recover
-#   $2  job — full job string being claimed (e.g. "~path/to/game.7z|lvol|dest~")
+#   $1  pid  — BASHPID of the worker process claiming the job; used as the
+#              registry key for lookup by worker_job_end and worker_registry_recover
+#   $2  type — worker type: "extract" or "dispatch"
+#   $3  job  — full job string being claimed (e.g. "~path/to/game.7z|lvol|dest~")
 #
 # Returns     : 0 always
-# Modifies    : $QUEUE_DIR/.worker_registry — appends "<pid> <job>\n"
+# Modifies    : $QUEUE_DIR/.worker_registry — appends "<pid> <type> <job>\n"
 #
 # Locals
 #   pid  — $1 captured as a named local
-#   job  — $2 captured as a named local
+#   type — $2 captured as a named local
+#   job  — $3 captured as a named local
 #   reg  — path to the registry file (from _wr_path)
 #   lock — path to the flock lock file (from _wr_lock_path)
 #   tmp  — temporary file path "<reg>.tmp.<BASHPID>" used for atomic rewrite
 #          that removes any stale entry for this PID before appending the new one
 # ──────────────────────────────────────────────────────────────────────────────
 worker_job_begin() {
-    local pid="$1" job="$2"
+    local pid="$1" type="$2" job="$3"
     local reg lock
     reg="$(_wr_path)"
     lock="$(_wr_lock_path)"
@@ -116,7 +119,7 @@ worker_job_begin() {
         else
             rm -f -- "$tmp"
         fi
-        printf '%s %s\n' "$pid" "$job" >> "$reg"
+        printf '%s %s %s\n' "$pid" "$type" "$job" >> "$reg"
     ) 9>"$lock"
 }
 
@@ -182,17 +185,18 @@ worker_registry_recover() {
     [[ -f "$reg" ]] || return 0
     (
         flock -x 9
-        # Print the job (everything after the first space on each line).
+        # Print the job (everything after the second space on each line).
+        # Format is "<pid> <type> <job_string>" — skip pid and type fields.
         #
-        # DO NOT use `{ $1=""; sub(/^ /,""); print }` here. Assigning to $1
-        # causes awk to rebuild $0 using OFS (default single space), which
+        # DO NOT use field reconstruction (`$1=""` etc.) here. Assigning to
+        # $1 causes awk to rebuild $0 using OFS (default single space), which
         # COLLAPSES runs of whitespace anywhere in the job string. A job path
         # containing two consecutive spaces would come back with one space,
         # and the mismatched path would then fail to re-queue correctly.
         #
-        # index-based split keeps $0 byte-exact: take everything after the
-        # first space literally, with no field reconstruction.
-        awk '{ i = index($0, " "); if (i > 0) print substr($0, i + 1) }' "$reg"
+        # index-based split keeps $0 byte-exact: skip past two spaces
+        # literally, with no field reconstruction.
+        awk '{ i = index($0, " "); if (i > 0) { r = substr($0, i + 1); j = index(r, " "); if (j > 0) print substr(r, j + 1) } }' "$reg"
         rm -f -- "$reg"
         : > "$reg"
     ) 9>"$lock"

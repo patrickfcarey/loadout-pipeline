@@ -38,9 +38,10 @@
 #                                    by multiple job lines only pays one 7z l)
 #
 # Scope
-#   lvol adapter only. ftp/hdl/rclone/rsync precheck is a stub, so planning
-#   them buys nothing. If those adapters gain real implementations later,
-#   add per-adapter branches in resume_plan.
+#   lvol adapter only. ftp/rclone/rsync precheck is a stub and hdl precheck
+#   is a single hdl_dump toc call — planning them buys nothing. If those
+#   adapters gain cheap-skip precheck implementations later, add per-adapter
+#   branches in resume_plan.
 #
 # Disable switch
 #   RESUME_PLANNER_IND=0 bypasses the planner entirely. Useful for forced

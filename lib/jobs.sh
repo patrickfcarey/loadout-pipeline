@@ -77,15 +77,34 @@ load_jobs() {
     fi
 
     local line lineno=0
+    local _in_block_comment=0 _inside_body=0 _saw_header=0
+
     while IFS= read -r line; do
         (( lineno++ )) || true
-        # Trim trailing CR so jobs files saved with CRLF line endings on
-        # Windows/WSL parse the same as LF-only files. Without this, the
-        # closing '~' of each line would be followed by '\r', the anchored
-        # regex below would silently reject every job, and the user would
-        # see a cryptic "invalid job" with no obvious cause.
         line="${line%$'\r'}"
+
+        local _trimmed="${line#"${line%%[! ]*}"}"
+        if (( _in_block_comment )); then
+            [[ "$_trimmed" == '*/' || "$_trimmed" == '*/ '* ]] && _in_block_comment=0
+            continue
+        fi
+        if [[ "$_trimmed" == '/*' || "$_trimmed" == '/* '* ]]; then
+            _in_block_comment=1
+            continue
+        fi
+
         [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        if [[ "$line" == '---JOBS---' ]]; then
+            _saw_header=1
+            _inside_body=1
+            continue
+        fi
+        if [[ "$line" == '---END---' ]]; then
+            _inside_body=0
+            continue
+        fi
+        (( _inside_body )) || continue
 
         # Format: ~iso_path|adapter|destination~
         # Validation rules:
@@ -95,7 +114,7 @@ load_jobs() {
         #                 (e.g. "Ultimate Board Game Collection (USA).7z") commonly
         #                 include them. Every pipeline code path double-quotes
         #                 $archive, so spaces and parentheses are safe in practice.
-        #   adapter     — one of: ftp  hdl  sd  rclone  rsync
+        #   adapter     — one of: ftp  hdl  lvol  rclone  rsync
         #   destination — adapter-specific target path. More restrictive than
         #                 iso_path: spaces and parentheses are NOT allowed here
         #                 because adapter destinations may be passed to external
@@ -104,12 +123,12 @@ load_jobs() {
         #                 Allowed: letters, digits, _ . / -
         #
         # Always rejected in both fields: shell injection characters (; & $ ` " '
-        # \ tab |) and the path-traversal sequence (..). The ..  check below
-        # provides depth-of-defence even though the first regex would reject |.
+        # \ tab) and the path-traversal sequence (..). Additional |field groups
+        # after the third pipe are allowed for future column extensibility.
         #
         # Store the pattern in a variable. bash recommends this when the ERE
         # contains spaces so the pattern is not subject to word-splitting.
-        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+~$'
+        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ ()-]*)*~$'
         if [[ ! "$line" =~ $_job_regex ]]; then
             log_error "invalid job at line $lineno: '$line'"
             log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|lvol|rclone|rsync)|destination~"
@@ -161,8 +180,27 @@ load_jobs() {
             return 1
         fi
 
+        # Adapter-specific validation for `hdl`. The hdl adapter extends the
+        # destination_spec with one extra field: the PS2 title. Validating at
+        # load time surfaces typos to the operator before a worker is spawned.
+        # The host-side HDD device and hdl_dump install target are operator-
+        # wide env vars (HDL_HOST_DEVICE, HDL_INSTALL_TARGET), not per-job.
+        if [[ "$_check_adapter" == "hdl" ]]; then
+            if ! parse_hdl_destination "$_check_dest" >/dev/null; then
+                log_error "invalid hdl job at line $lineno: '$line'"
+                log_error "hdl jobs require: ~<iso>|hdl|<cd|dvd>|<title>~"
+                return 1
+            fi
+        fi
+
         JOBS+=("$line")
     done < "$file"
+
+    if (( ! _saw_header )); then
+        log_error "missing ---JOBS--- header in $file"
+        log_error "jobs files must begin with a ---JOBS--- header and end with ---END---"
+        return 1
+    fi
 
     if [[ ${#JOBS[@]} -eq 0 ]]; then
         log_warn "no jobs found in $file"
