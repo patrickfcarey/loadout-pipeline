@@ -54,14 +54,15 @@ export DEBUG_IND="${DEBUG_IND:-0}"
 export RESUME_PLANNER_IND="${RESUME_PLANNER_IND:-1}"
 export MAX_UNZIP="${MAX_UNZIP:-2}"
 export MAX_DISPATCH="${MAX_DISPATCH:-2}"
+export SCRATCH_DISK_DIR="${SCRATCH_DISK_DIR:-/tmp}"
 # QUEUE_DIR is the parent dir that holds both sub-queues.
-export QUEUE_DIR="${QUEUE_DIR:-/tmp/iso_pipeline_queue}"
+export QUEUE_DIR="${QUEUE_DIR:-$SCRATCH_DISK_DIR/iso_pipeline_queue}"
 export EXTRACT_QUEUE_DIR="${EXTRACT_QUEUE_DIR:-$QUEUE_DIR/extract}"
 export DISPATCH_QUEUE_DIR="${DISPATCH_QUEUE_DIR:-$QUEUE_DIR/dispatch}"
-export EXTRACT_DIR="${EXTRACT_DIR:-/tmp/iso_pipeline}"
+export EXTRACT_DIR="${EXTRACT_DIR:-$SCRATCH_DISK_DIR/iso_pipeline}"
 # Scratch copies live in a sibling dir, NOT inside EXTRACT_DIR: otherwise any
 # consumer that iterates $EXTRACT_DIR/* trips over the hidden .copies subdir.
-export COPY_DIR="${COPY_DIR:-/tmp/iso_pipeline_copies}"
+export COPY_DIR="${COPY_DIR:-$SCRATCH_DISK_DIR/iso_pipeline_copies}"
 # Safety budget applied on top of raw archive + extracted bytes when reserving
 # scratch space. Percent, integer. 20 means "reserve archive+extracted × 1.20".
 export SPACE_OVERHEAD_PCT="${SPACE_OVERHEAD_PCT:-20}"
@@ -72,12 +73,21 @@ export FTP_PASS="${FTP_PASS:-}"
 export FTP_PORT="${FTP_PORT:-21}"
 # HDL dump adapter
 export HDL_DUMP_BIN="${HDL_DUMP_BIN:-hdl_dump}"
-# SD card adapter
-export SD_MOUNT_POINT="${SD_MOUNT_POINT:-/mnt/sdcard}"
+# HDL_HOST_DEVICE — hdl_dump device id used for the startup writability probe.
+# Usually the physical PS2 HDD your machine exposes (e.g. "sri:"). Used once
+# at pipeline startup when hdl jobs are queued; left empty to skip the probe.
+export HDL_HOST_DEVICE="${HDL_HOST_DEVICE:-}"
+# HDL_INSTALL_TARGET — hdl_dump target passed to inject_cd/inject_dvd for
+# every hdl job (e.g. "hdd0:"). Resolved by the operator's own
+# ~/.hdl_dump.conf — the pipeline does not touch HOME.
+export HDL_INSTALL_TARGET="${HDL_INSTALL_TARGET:-}"
+# Local volume adapter
+export LVOL_MOUNT_POINT="${LVOL_MOUNT_POINT:-/mnt/lvol}"
 # rclone adapter
 export RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 export RCLONE_DEST_BASE="${RCLONE_DEST_BASE:-}"
 export RCLONE_FLAGS="${RCLONE_FLAGS:-}"
+export RCLONE_CONFIG="${RCLONE_CONFIG:-}"
 # rsync adapter
 export RSYNC_DEST_BASE="${RSYNC_DEST_BASE:-}"
 export RSYNC_HOST="${RSYNC_HOST:-}"
@@ -156,3 +166,17 @@ if (( DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS )); then
     echo "[config] ERROR: DISPATCH_POLL_INITIAL_MS ($DISPATCH_POLL_INITIAL_MS) must not exceed DISPATCH_POLL_MAX_MS ($DISPATCH_POLL_MAX_MS)" >&2
     exit 2
 fi
+
+# DEBUG_IND: logging verbosity. 0 = silent (production default), 1 = debug
+# (function entry/exit + log_debug/log_trace), 2 = extended (level 1 + log_cmd/
+# log_var/log_fs/log_xtrace + rc-on-exit in the RETURN trap). See
+# lib/logging.sh for the helper-level breakdown. Validated here so a typo
+# like DEBUG_IND=true doesn't silently degrade to level 0 — an operator
+# asking for debug output should get debug output or a clear error.
+case "${DEBUG_IND}" in
+    0|1|2) ;;
+    *)
+        echo "[config] ERROR: DEBUG_IND must be 0, 1, or 2, got '$DEBUG_IND'" >&2
+        exit 2
+        ;;
+esac

@@ -1,5 +1,8 @@
 # loadout-pipeline Architecture
 
+Per-function requirements live under [`docs/requirements/`](requirements/index.md);
+this document is the narrative overview.
+
 ## Entry Point
 
 `bin/loadout-pipeline.sh` is the single entry point. On startup it:
@@ -17,20 +20,20 @@ once a run actually begins.
 
 ## Library Files
 
-| File                      | Responsibility                                                                 |
-|---------------------------|--------------------------------------------------------------------------------|
-| `lib/config.sh`           | `.env` loader + all exported variable defaults                                 |
-| `lib/logging.sh`          | `log_enter`, `log_debug`, `log_trace`, `log_warn`, `log_error` + RETURN trap   |
-| `lib/init.sh`             | `init_environment` — creates `EXTRACT_DIR`, `COPY_DIR`, `QUEUE_DIR`             |
-| `lib/job_format.sh`       | `parse_job_line` — canonical `~iso\|adapter\|dest~` parser, sourced by all stages |
-| `lib/jobs.sh`             | `load_jobs` — validate and parse the job file into `JOBS[]`                    |
-| `lib/queue.sh`            | `queue_init`, `queue_push`, `queue_pop` — file-based FIFO, parameterised on queue dir |
-| `lib/workers.sh`          | `workers_start`, `unzip_worker`, `dispatch_worker` — two-stage worker pools + recovery loop |
-| `lib/extract.sh`          | Per-job extract stage: precheck → space reservation → copy → 7z → dispatch push |
-| `lib/precheck.sh`         | Per-adapter "already at destination?" check                                    |
-| `lib/dispatch.sh`         | Routes a dispatch-stage job to the correct adapter by adapter type             |
-| `lib/space.sh`            | `flock`-guarded space reservation ledger (shared across concurrent workers)    |
-| `lib/worker_registry.sh`  | `flock`-guarded registry of in-flight jobs → enables intra-run recovery        |
+| File                     | Responsibility                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/config.sh`          | `.env` loader + all exported variable defaults                                                                                                                |
+| `lib/logging.sh`         | Hierarchical `DEBUG_IND` logging: `log_info/warn/error` (all), level-1 `log_enter/debug/trace` + RETURN trap, level-2 `log_cmd/var/fs/xtrace` + `rc=` on exit |
+| `lib/init.sh`            | `init_environment` — creates `EXTRACT_DIR`, `COPY_DIR`, `QUEUE_DIR`                                                                                           |
+| `lib/job_format.sh`      | `parse_job_line` — canonical `~iso\|adapter\|dest~` parser, sourced by all stages                                                                             |
+| `lib/jobs.sh`            | `load_jobs` — validate and parse the job file into `JOBS[]`                                                                                                   |
+| `lib/queue.sh`           | `queue_init`, `queue_push`, `queue_pop` — file-based FIFO, parameterised on queue dir                                                                         |
+| `lib/workers.sh`         | `workers_start`, `unzip_worker`, `dispatch_worker` — two-stage worker pools + recovery loop                                                                   |
+| `lib/extract.sh`         | Per-job extract stage: precheck → space reservation → copy → 7z → dispatch push                                                                               |
+| `lib/precheck.sh`        | Per-adapter "already at destination?" check                                                                                                                   |
+| `lib/dispatch.sh`        | Routes a dispatch-stage job to the correct adapter by adapter type                                                                                            |
+| `lib/space.sh`           | `flock`-guarded space reservation ledger (shared across concurrent workers)                                                                                   |
+| `lib/worker_registry.sh` | `flock`-guarded registry of in-flight jobs → enables intra-run recovery                                                                                       |
 
 ---
 
@@ -83,10 +86,10 @@ conditions hold — dispatch queue empty AND the sentinel file exists.
 
 Two sub-queues live inside `$QUEUE_DIR`:
 
-| Sub-queue             | Default                               |
-|-----------------------|---------------------------------------|
-| `EXTRACT_QUEUE_DIR`   | `$QUEUE_DIR/extract`                  |
-| `DISPATCH_QUEUE_DIR`  | `$QUEUE_DIR/dispatch`                 |
+| Sub-queue            | Default               |
+| -------------------- | --------------------- |
+| `EXTRACT_QUEUE_DIR`  | `$QUEUE_DIR/extract`  |
+| `DISPATCH_QUEUE_DIR` | `$QUEUE_DIR/dispatch` |
 
 Each sub-queue is a directory of `.job` files.
 
@@ -153,27 +156,27 @@ The worker registry bridges that gap.
 `lib/precheck.sh` runs once per extract job and answers a single question: *is
 the archive's extracted content already present at the destination?*
 
-| Exit | Meaning                                                          |
-|-----:|------------------------------------------------------------------|
-|  `0` | Content already present → `extract.sh` logs `[skip]` and exits   |
-|  `1` | Not present → proceed with reserve + copy + extract + dispatch    |
-|  `2` | Fatal preflight failure (malformed archive, unknown adapter)      |
+| Exit | Meaning                                                        |
+| ---: | -------------------------------------------------------------- |
+|  `0` | Content already present → `extract.sh` logs `[skip]` and exits |
+|  `1` | Not present → proceed with reserve + copy + extract + dispatch |
+|  `2` | Fatal preflight failure (malformed archive, unknown adapter)   |
 
 Space accounting has moved out of precheck and into `extract.sh` (under the
 shared ledger) so concurrent workers coordinate reservations properly.
 
 Per-adapter behaviour:
 
-| Adapter  | Check                                                 | Status                                      |
-|----------|-------------------------------------------------------|---------------------------------------------|
-| `sd`     | `test -e "$SD_MOUNT_POINT/$dest/<contained>"`         | Real                                        |
-| `ftp`    | TODO: `curl --list-only` / `lftp ls` against `$dest`  | Stub (always returns "not present")         |
-| `hdl`    | TODO: `hdl_dump toc "$dest"` grep for title           | Stub (always returns "not present")         |
-| `rclone` | TODO: `rclone ls $RCLONE_REMOTE$RCLONE_DEST_BASE/...` | Stub (always returns "not present")         |
-| `rsync`  | TODO: `ssh` + stat or `rsync --dry-run`                | Stub (always returns "not present")         |
+| Adapter  | Check                                                   | Status                              |
+| -------- | ------------------------------------------------------- | ----------------------------------- |
+| `lvol`   | `test -e "$LVOL_MOUNT_POINT/$dest/<contained>"`         | Real                                |
+| `ftp`    | `curl --list-only` against FTP dest, match each member  | Real                                |
+| `hdl`    | `hdl_dump toc "$HDL_INSTALL_TARGET"` grep for `<title>` | Real                                |
+| `rclone` | `rclone lsf` against remote dest, match each member     | Real                                |
+| `rsync`  | TODO: `ssh` + stat or `rsync --dry-run`                 | Stub (always returns "not present") |
 
-Stub checks are pessimistic by design: they always proceed with work rather
-than risk a false skip.
+Stub/TODO checks are pessimistic by design: they always proceed with work
+rather than risk a false skip.
 
 ---
 
@@ -186,15 +189,20 @@ Override precedence (highest to lowest):
 2. `.env` file values
 3. Hardcoded fallbacks in `lib/config.sh`
 
+`SCRATCH_DISK_DIR` (default `/tmp`) is the root for all scratch I/O.
+`EXTRACT_DIR`, `COPY_DIR`, and `QUEUE_DIR` all derive from it when not set
+explicitly, so a single variable controls where all temporary data lands.
+
 Key variables not visible in the pipeline core table:
 
-| Variable                          | Default                  | Description                                                                        |
-|-----------------------------------|--------------------------|------------------------------------------------------------------------------------|
-| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`   | File listing bare filenames to delete from every extracted archive before dispatch |
-| `DISPATCH_POLL_INITIAL_MS`        | `50`                     | Starting poll interval (ms) for dispatch workers when the dispatch queue is empty  |
-| `DISPATCH_POLL_MAX_MS`            | `500`                    | Maximum poll interval (ms) for the exponential dispatch backoff                    |
-| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                      | Initial sleep (s) for an extract worker after a space-reservation miss             |
-| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                     | Maximum sleep (s) for the exponential space-retry backoff                          |
+| Variable                          | Default                | Description                                                                        |
+| --------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `SCRATCH_DISK_DIR`                | `/tmp`                 | Root for all scratch I/O; child dirs derive from this                              |
+| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list` | File listing bare filenames to delete from every extracted archive before dispatch |
+| `DISPATCH_POLL_INITIAL_MS`        | `50`                   | Starting poll interval (ms) for dispatch workers when the dispatch queue is empty  |
+| `DISPATCH_POLL_MAX_MS`            | `500`                  | Maximum poll interval (ms) for the exponential dispatch backoff                    |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                    | Initial sleep (s) for an extract worker after a space-reservation miss             |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                   | Maximum sleep (s) for the exponential space-retry backoff                          |
 
 See `.env.example` for the full variable reference.
 
@@ -202,14 +210,38 @@ See `.env.example` for the full variable reference.
 
 ## Adapters
 
-The SD card adapter (`adapters/sdcard.sh`) is **fully implemented**: it
-validates `SD_MOUNT_POINT`, performs a `realpath -m` containment check to
+The local volume adapter (`adapters/lvol.sh`) is **fully implemented**: it
+validates `LVOL_MOUNT_POINT`, performs a `realpath -m` containment check to
 prevent destination-escape via `..` segments, and copies using `rsync -a`
-(with a `cp -r` fallback when rsync is unavailable).
+(with a `cp -r` fallback when rsync is unavailable). It works with SD cards,
+USB drives, NVMe/SSD/HDD enclosures, or any locally-mounted path.
 
-All other adapters (`ftp`, `hdl`, `rclone`, `rsync`) are **stubs** — they log
-what they would do but do not transfer any files. Each script contains a
-`TODO` marker and implementation notes.
+The `rsync` adapter transfers files via rsync with checksum-verified,
+resumable transfers (`-avzc --partial --append-verify`). It supports
+both local and remote (SSH) destinations.
+
+The `rclone` adapter transfers files to any rclone-supported remote
+(S3, GDrive, Dropbox, SFTP, and 100+ others) using `rclone copy`. It
+supports an optional `RCLONE_CONFIG` path and extra flags via
+`RCLONE_FLAGS`.
+
+The `ftp` adapter uploads directories to an FTP server using `lftp`'s
+reverse-mirror mode, which handles recursive directory creation, resume
+on broken connections, and retries natively.
+
+The `hdl` adapter injects PS2 titles onto an HDLoader-formatted HDD
+using `hdl_dump`. It unpacks the 4-field hdl job line (`<iso>|hdl|<cd|dvd>|
+<title>`) via `parse_hdl_destination` and invokes `hdl_dump inject_cd`/
+`inject_dvd "$HDL_INSTALL_TARGET" <title> <iso>`. The PS2 device
+designators are operator-wide env vars, not per-job fields:
+`HDL_INSTALL_TARGET` (e.g. `hdd0:`) is the inject target for every
+hdl job, and `HDL_HOST_DEVICE` (e.g. `sri:`) is a startup-probe target
+that `bin/loadout-pipeline.sh` uses to fail fast if `hdl_dump toc`
+cannot reach the HDD. Device resolution (`<device>:` → host path) is
+delegated to the operator's real `~/.hdl_dump.conf` — the adapter does
+not rewrite `HOME` or fabricate a scratch config. This matches how
+operators already invoke `hdl_dump` by hand and keeps the pipeline
+out of the business of mirroring upstream's config-file format.
 
 To add a new adapter:
 1. Create `adapters/<name>.sh`
@@ -224,19 +256,20 @@ To add a new adapter:
 
 ### Unit suite (`test/run_tests.sh`)
 
-**27 test cases, 99 assertions.** Covers: default run, single worker, more
+**107 test cases, 467 assertions.** Covers: default run, single worker, more
 workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`,
 SD precheck skip, multi-file archive (.bin + .cue), partial-hit precheck,
 mid-extract failure + cleanup, rerun after failure, concurrent space reservation
 under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit
-test, rclone/rsync adapter smoke tests, intra-run orphan recovery via the worker
-registry, phantom ledger GC after SIGKILL (H1 fix), mid-string `/../` rejection
-in the job-line parser (M2 fix), a real 196 MB PS2 archive exercising spaces and
-parentheses in the iso path (Test 21 — **hard-fails when the archive is absent**),
-and regression pins for C1 (basename `.`), C2 (`_space_dev` loop), H1
-(queue_pop rc), and M3 (worker_registry consecutive spaces).
+test, rclone/rsync/ftp adapter end-to-end and validation tests, adapter stub
+fallback behaviour, intra-run orphan recovery via the worker registry, phantom
+ledger GC after SIGKILL (H1 fix), mid-string `/../` rejection in the job-line
+parser (M2 fix), a real 196 MB PS2 archive exercising spaces and parentheses in
+the iso path (Test 21 — **hard-fails when the archive is absent**), and
+regression pins for C1 (basename `.`), C2 (`_space_dev` loop), H1 (queue_pop
+rc), and M3 (worker_registry consecutive spaces).
 
-Mutation validation (`test/validate_tests.sh`) provides **57 V-checks** — one
+Mutation validation (`test/validate_tests.sh`) provides **61 V-checks** — one
 per meaningful assertion — to confirm every assertion would catch a real defect.
 
 ### Integration suite (`test/integration/`)
@@ -252,17 +285,31 @@ bash test/integration/launch.sh   # builds + runs inside --privileged Docker
 
 Key files:
 
-| Path | Purpose |
-|------|---------|
-| `test/integration/Dockerfile` | Privileged test image (debian-slim + p7zip, dosfstools, pure-ftpd, openssh, rclone, rsync) |
-| `test/integration/launch.sh` | Host-side: `docker build` + `docker run --privileged` |
-| `test/integration/run_integration.sh` | Orchestrator inside the container |
-| `test/integration/helpers/bootstrap.sh` | Provisions 7 substrates; single EXIT/INT/TERM teardown trap |
-| `test/integration/helpers/verify.sh` | `tree_hash`, `assert_tree_eq`, byte-exact assertions |
-| `test/integration/helpers/inject.sh` | `inject_sigkill_after`, `inject_dead_pid`, `inject_enospc` |
-| `test/integration/fixtures/generate_int_archives.sh` | Synthetic urandom archives (cached by presence) |
-| `test/integration/suites/01–10` | Mirror unit-suite numbering; stub-adapter scenarios hard-fail |
+| Path                                                 | Purpose                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `test/integration/Dockerfile`                        | Privileged test image (debian-slim + p7zip, dosfstools, pure-ftpd, openssh, rclone, rsync) |
+| `test/integration/launch.sh`                         | Host-side: `docker build` + `docker run --privileged`                                      |
+| `test/integration/run_integration.sh`                | Orchestrator inside the container                                                          |
+| `test/integration/helpers/bootstrap.sh`              | Provisions 7 substrates; single EXIT/INT/TERM teardown trap                                |
+| `test/integration/helpers/verify.sh`                 | `tree_hash`, `assert_tree_eq`, byte-exact assertions                                       |
+| `test/integration/helpers/inject.sh`                 | `inject_sigkill_after`, `inject_dead_pid`, `inject_enospc`                                 |
+| `test/integration/fixtures/generate_int_archives.sh` | Synthetic urandom archives (cached by presence)                                            |
+| `test/integration/suites/01–10`                      | Mirror unit-suite numbering; stub-adapter scenarios hard-fail                              |
 
-Stub adapter scenarios (ftp, hdl_dump, rclone, rsync) intentionally produce
-`FAIL` until real implementations land. Their failure messages are stable and
-greppable so CI output makes the gap visible without hiding it.
+The ftp and rclone stub adapter scenarios intentionally produce `FAIL`
+until their real implementations land. Their failure messages are stable
+and greppable so CI output makes the gap visible without hiding it.
+
+The hdl_dump scenario is exercised end-to-end against a mock `hdl_dump`
+shim installed into the integration container. A real inject on a raw
+loopback file is not achievable in CI because `hdl_dump inject_cd/dvd`
+requires an APA-formatted HDD that already has a signed MBR KELF
+written — a cryptographically-signed PS2 binary we cannot ship or
+synthesize. The mock (installed by `_int_setup_hdl` in
+`test/integration/helpers/bootstrap.sh`) implements just enough of the
+real CLI (`toc`, `inject_cd`, `inject_dvd`) to verify the wire-level
+contract of our adapter and precheck: correct subcommand, correct args,
+and correct consumption of `HDL_INSTALL_TARGET` / `HDL_HOST_DEVICE`
+from the environment. Test 15 covers the inject + toc verify +
+precheck-skip flow; Test 15b locks in load-time rejection of malformed
+hdl job lines.

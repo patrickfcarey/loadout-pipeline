@@ -27,9 +27,11 @@ FIXTURES_DIR="$ROOT_DIR/test/fixtures"
 # would break the moment the repo moved off one machine.
 TEST_JOBS="/tmp/iso_pipeline_validate_jobs_$$.jobs"
 cat > "$TEST_JOBS" <<EOF
+---JOBS---
 ~$FIXTURES_DIR/isos/game1.7z|ftp|/remote/path/game1~
-~$FIXTURES_DIR/isos/game2.7z|hdl|/dev/hdd0~
-~$FIXTURES_DIR/isos/game3.7z|sd|games/game3~
+~$FIXTURES_DIR/isos/game2.7z|hdl|dvd|Game 2~
+~$FIXTURES_DIR/isos/game3.7z|lvol|games/game3~
+---END---
 EOF
 trap 'rm -f "$TEST_JOBS"' EXIT
 
@@ -371,12 +373,12 @@ source "$ROOT_DIR/lib/logging.sh"
 # shellcheck source=../lib/worker_registry.sh
 source "$ROOT_DIR/lib/worker_registry.sh"
 
-EXPECTED_JOB="~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|games/game1~"
+EXPECTED_JOB="~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
 
 worker_registry_init
 
 # V27: orphaned entry returned by recover → equality check passes
-worker_job_begin "99998" "$EXPECTED_JOB"
+worker_job_begin "99998" "extract" "$EXPECTED_JOB"
 recovered=$(worker_registry_recover)
 [[ "$recovered" == "$EXPECTED_JOB" ]] \
     && caught "V27: orphaned job string returned correctly by recover" \
@@ -390,7 +392,7 @@ recovered2=$(worker_registry_recover)
 
 # V29: wrong job string would be caught by equality check
 worker_registry_init
-worker_job_begin "99997" "~wrong_archive.7z|sd|games/wrong~"
+worker_job_begin "99997" "extract" "~wrong_archive.7z|lvol|games/wrong~"
 recovered3=$(worker_registry_recover)
 [[ "$recovered3" != "$EXPECTED_JOB" ]] \
     && caught "V29: wrong job string would fail equality check in test 15" \
@@ -411,33 +413,33 @@ grep -q "orphaned job(s) detected" "$V_LOG" 2>/dev/null \
 rm -rf "$V_REG_DIR" "$V_LOG"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# V31–V34  Adapter stub log detection  (tests 16, 17)
+# V31–V34  Adapter transfer log detection  (tests 16, 17)
 # ═════════════════════════════════════════════════════════════════════════════
-header "V31–V34: adapter stub log detection (tests 16 and 17)"
+header "V31–V34: adapter transfer log detection (tests 16 and 17)"
 
 V_LOG="/tmp/lp_validate_adapter_$$.log"
 
-# V31: rclone stub line absent → grep fails (assertion would FAIL)
+# V31: rclone transfer line absent → grep fails (assertion would FAIL)
 printf '[extract] Extracting game1.7z\n' > "$V_LOG"
-grep -q '\[rclone\] STUB' "$V_LOG" 2>/dev/null \
-    && missed "V31: rclone grep matched without stub line" \
-    || caught "V31: absent rclone stub line not matched — assertion would FAIL"
+grep -q '\[rclone\] Transferring' "$V_LOG" 2>/dev/null \
+    && missed "V31: rclone grep matched without transfer line" \
+    || caught "V31: absent rclone transfer line not matched — assertion would FAIL"
 
-# V32: rclone stub line present → grep matches (assertion would PASS)
-printf '[rclone] STUB — would transfer /some/dir → gdrive:backups/games/game1\n' >> "$V_LOG"
-grep -q '\[rclone\] STUB' "$V_LOG" 2>/dev/null \
-    && caught "V32: rclone stub line correctly matched" \
-    || missed "V32: rclone stub line NOT matched"
+# V32: rclone transfer line present → grep matches (assertion would PASS)
+printf '[rclone] Transferring /some/dir → test_local:games/game1\n' >> "$V_LOG"
+grep -q '\[rclone\] Transferring' "$V_LOG" 2>/dev/null \
+    && caught "V32: rclone transfer line correctly matched" \
+    || missed "V32: rclone transfer line NOT matched"
 
-# V33: rsync local target format — wrong format fails
-printf '[rsync] STUB — would transfer /some/dir → /wrong/path\n' > "$V_LOG"
-grep -q '\[rsync\] STUB.*→ /mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
+# V33: rsync wrong target format — grep fails
+printf '[rsync] Transferring /some/dir → /wrong/path\n' > "$V_LOG"
+grep -q '\[rsync\] Transferring.*→ /mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
     && missed "V33: rsync grep matched wrong target path" \
     || caught "V33: wrong rsync target path correctly not matched"
 
-# V34: rsync local target format — correct format passes
-printf '[rsync] STUB — would transfer /some/dir → /mnt/nas/games/game2\n' > "$V_LOG"
-grep -q '\[rsync\] STUB.*→ /mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
+# V34: rsync correct local target format — grep matches
+printf '[rsync] Transferring /some/dir → /mnt/nas/games/game2\n' > "$V_LOG"
+grep -q '\[rsync\] Transferring.*→ /mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
     && caught "V34: correct rsync local target format matched" \
     || missed "V34: correct rsync local target format NOT matched"
 
@@ -451,14 +453,14 @@ header "V35–V36: rsync remote target format (test 17)"
 V_LOG="/tmp/lp_validate_rsync_remote_$$.log"
 
 # V35: missing user@host prefix → grep fails
-printf '[rsync] STUB — would transfer /some/dir → /mnt/nas/games/game2\n' > "$V_LOG"
-grep -q '\[rsync\] STUB.*→ admin@nas\.local:/mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
+printf '[rsync] Transferring /some/dir → /mnt/nas/games/game2\n' > "$V_LOG"
+grep -q '\[rsync\] Transferring.*→ admin@nas\.local:/mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
     && missed "V35: rsync remote grep matched a local-target line" \
     || caught "V35: local-target line correctly does not match remote-target grep"
 
 # V36: correct remote format present → grep matches
-printf '[rsync] STUB — would transfer /some/dir → admin@nas.local:/mnt/nas/games/game2\n' > "$V_LOG"
-grep -q '\[rsync\] STUB.*→ admin@nas\.local:/mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
+printf '[rsync] Transferring /some/dir → admin@nas.local:/mnt/nas/games/game2\n' > "$V_LOG"
+grep -q '\[rsync\] Transferring.*→ admin@nas\.local:/mnt/nas/games/game2' "$V_LOG" 2>/dev/null \
     && caught "V36: correct rsync remote target format matched" \
     || missed "V36: correct rsync remote target format NOT matched"
 
@@ -561,7 +563,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # V41: mid-string /../ in iso path MUST be rejected.
-    printf '%s\n' "~/abs/../etc/passwd.7z|sd|games/game1~" > "$V_TRAV_JOBS"
+    { echo '---JOBS---'; echo "~/abs/../etc/passwd.7z|lvol|games/game1~"; echo '---END---'; } > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "MISSED V41: mid-string /../ in iso path was NOT rejected"
@@ -570,7 +572,7 @@ done < <(
     fi
 
     # V42: mid-string /../ in destination MUST be rejected.
-    printf '%s\n' "~/abs/path/game.7z|sd|games/../../../etc/passwd~" > "$V_TRAV_JOBS"
+    { echo '---JOBS---'; echo "~/abs/path/game.7z|lvol|games/../../../etc/passwd~"; echo '---END---'; } > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "MISSED V42: mid-string /../ in destination was NOT rejected"
@@ -579,7 +581,7 @@ done < <(
     fi
 
     # V43: legitimate '.' in filename must still be ACCEPTED.
-    printf '%s\n' "~/abs/path/game.v1.7z|sd|games/game.v1~" > "$V_TRAV_JOBS"
+    { echo '---JOBS---'; echo "~/abs/path/game.v1.7z|lvol|games/game.v1~"; echo '---END---'; } > "$V_TRAV_JOBS"
     JOBS=()
     if load_jobs "$V_TRAV_JOBS" 2>/dev/null; then
         echo "CAUGHT V43: legitimate path with '.' in names accepted (guard not over-broad)"
@@ -612,7 +614,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # V44: '/..7z' — basename .7z → '.' — MUST be rejected (C1 regression).
-    printf '%s\n' "~/..7z|sd|games/game1~" > "$V_BN_JOBS"
+    { echo '---JOBS---'; echo "~/..7z|lvol|games/game1~"; echo '---END---'; } > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "MISSED V44: '/..7z' was NOT rejected — C1 regression"
@@ -621,7 +623,7 @@ done < <(
     fi
 
     # V45: '.hidden.7z' — basename begins with dot — MUST be rejected.
-    printf '%s\n' "~/games/.hidden.7z|sd|games/game1~" > "$V_BN_JOBS"
+    { echo '---JOBS---'; echo "~/games/.hidden.7z|lvol|games/game1~"; echo '---END---'; } > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "MISSED V45: '.hidden.7z' was NOT rejected"
@@ -630,7 +632,7 @@ done < <(
     fi
 
     # V46: legitimate 'game1.7z' MUST still be accepted (guard not over-broad).
-    printf '%s\n' "~/games/game1.7z|sd|games/game1~" > "$V_BN_JOBS"
+    { echo '---JOBS---'; echo "~/games/game1.7z|lvol|games/game1~"; echo '---END---'; } > "$V_BN_JOBS"
     JOBS=()
     if load_jobs "$V_BN_JOBS" 2>/dev/null; then
         echo "CAUGHT V46: legitimate 'game1.7z' accepted (guard not over-broad)"
@@ -715,7 +717,7 @@ done < <(
     fi
 
     # V50: push, then pop → rc=0 and output byte-exact.
-    V50_JOB='~/games/game1.7z|sd|games/g1~'
+    V50_JOB='~/games/game1.7z|lvol|games/g1~'
     queue_push "$V_Q_DIR" "$V50_JOB"
     V50_OUT=$(queue_pop "$V_Q_DIR")
     rc=$?
@@ -752,8 +754,8 @@ done < <(
 
     # V51: single-space job — recover emits byte-exact.
     worker_registry_init
-    JOB1='~/games/game1.7z|sd|games/g1~'
-    printf '12345 %s\n' "$JOB1" > "$(_wr_path)"
+    JOB1='~/games/game1.7z|lvol|games/g1~'
+    printf '12345 extract %s\n' "$JOB1" > "$(_wr_path)"
     OUT1=$(worker_registry_recover)
     if [[ "$OUT1" == "$JOB1" ]]; then
         echo "CAUGHT V51: recover preserved single-space job byte-exact"
@@ -763,8 +765,8 @@ done < <(
 
     # V52: DOUBLE-space job — recover emits byte-exact (M3 bug).
     worker_registry_init
-    JOB2='~/games/my  game.7z|sd|games/g1~'
-    printf '12345 %s\n' "$JOB2" > "$(_wr_path)"
+    JOB2='~/games/my  game.7z|lvol|games/g1~'
+    printf '12345 extract %s\n' "$JOB2" > "$(_wr_path)"
     OUT2=$(worker_registry_recover)
     if [[ "$OUT2" == "$JOB2" ]]; then
         echo "CAUGHT V52: recover preserved DOUBLE-space job byte-exact"
@@ -814,6 +816,64 @@ else
 fi
 
 rm -rf "$V_STRIP_DIR"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V56–V59  Adapter validation & stub fallback  (tests 18, 18b)
+# ═════════════════════════════════════════════════════════════════════════════
+# Tests 18/18b invoke adapters directly with missing env vars and verify
+# rc=1 (reject) and rc=0 (stub fallback). V-checks exercise both paths in
+# isolation to confirm the assertion patterns are not vacuous.
+header "V56–V59: adapter validation & stub fallback (tests 18 and 18b)"
+
+V_ADAPT_SRC="/tmp/lp_validate_adapt_$$"
+V_ADAPT_LOG="/tmp/lp_validate_adapt_$$.log"
+mkdir -p "$V_ADAPT_SRC"
+
+# V56: ftp adapter rejects missing FTP_HOST → rc=1
+V56_RC=0
+env -u FTP_HOST -u ALLOW_STUB_ADAPTERS \
+    bash "$ROOT_DIR/adapters/ftp.sh" \
+    "$V_ADAPT_SRC" "some/dest" >"$V_ADAPT_LOG" 2>&1 || V56_RC=$?
+if (( V56_RC == 1 )); then
+    caught "V56: ftp adapter rejects missing FTP_HOST with rc=1"
+else
+    missed "V56: ftp adapter returned rc=$V56_RC (expected 1) for missing FTP_HOST"
+fi
+
+# V57: ftp adapter stub fallback → rc=0 with [ftp] STUB in log
+V57_RC=0
+env -u FTP_HOST ALLOW_STUB_ADAPTERS=1 \
+    bash "$ROOT_DIR/adapters/ftp.sh" \
+    "$V_ADAPT_SRC" "some/dest" >"$V_ADAPT_LOG" 2>&1 || V57_RC=$?
+if (( V57_RC == 0 )) && grep -q '\[ftp\] STUB' "$V_ADAPT_LOG"; then
+    caught "V57: ftp adapter stub fallback rc=0 with STUB marker"
+else
+    missed "V57: ftp stub fallback rc=$V57_RC or missing STUB marker"
+fi
+
+# V58: rclone adapter rejects missing RCLONE_REMOTE → rc=1
+V58_RC=0
+env -u RCLONE_REMOTE -u ALLOW_STUB_ADAPTERS \
+    bash "$ROOT_DIR/adapters/rclone.sh" \
+    "$V_ADAPT_SRC" "some/dest" >"$V_ADAPT_LOG" 2>&1 || V58_RC=$?
+if (( V58_RC == 1 )); then
+    caught "V58: rclone adapter rejects missing RCLONE_REMOTE with rc=1"
+else
+    missed "V58: rclone adapter returned rc=$V58_RC (expected 1) for missing RCLONE_REMOTE"
+fi
+
+# V59: rclone adapter stub fallback → rc=0 with [rclone] STUB in log
+V59_RC=0
+env -u RCLONE_REMOTE ALLOW_STUB_ADAPTERS=1 \
+    bash "$ROOT_DIR/adapters/rclone.sh" \
+    "$V_ADAPT_SRC" "some/dest" >"$V_ADAPT_LOG" 2>&1 || V59_RC=$?
+if (( V59_RC == 0 )) && grep -q '\[rclone\] STUB' "$V_ADAPT_LOG"; then
+    caught "V59: rclone adapter stub fallback rc=0 with STUB marker"
+else
+    missed "V59: rclone stub fallback rc=$V59_RC or missing STUB marker"
+fi
+
+rm -rf "$V_ADAPT_SRC" "$V_ADAPT_LOG"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Summary

@@ -1,0 +1,16 @@
+# Local volume profile — copy game archives to a mounted drive or folder.
+# Works with SD cards, USB drives, NVMe/SSD/HDD enclosures, or any local path.
+#
+# Set LVOL_MOUNT_POINT to your drive's mount point before running:
+#
+#   LVOL_MOUNT_POINT=/media/mydrive bash bin/loadout-pipeline.sh examples/lvol.jobs
+#
+# The destination field is a subdirectory path under LVOL_MOUNT_POINT.
+# format: ~iso_path|adapter|destination~
+
+---JOBS---
+~/isos/ps1/crash_bandicoot.7z|lvol|ps1/crash_bandicoot~
+~/isos/ps1/spyro.7z|lvol|ps1/spyro~
+~/isos/ps2/shadow_of_the_colossus.7z|lvol|ps2/shadow_of_the_colossus~
+~/isos/ps2/ico.7z|lvol|ps2/ico~
+---END---

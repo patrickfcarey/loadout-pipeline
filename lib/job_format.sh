@@ -13,7 +13,7 @@
 #
 # Fields
 #   iso_path         — absolute path to the .7z archive on the local filesystem
-#   adapter_name     — one of: ftp  hdl  sd  rclone  rsync
+#   adapter_name     — one of: ftp  hdl  lvol  rclone  rsync
 #   destination_spec — adapter-specific target path or identifier
 #
 # parse_job_line <raw_job_line>
@@ -37,7 +37,7 @@
 #
 # Parameters
 #   $1  raw_job_line — the full job string including leading and trailing '~'
-#                      e.g. "~/path/to/game.7z|sd|games/game1~"
+#                      e.g. "~/path/to/game.7z|lvol|games/game1~"
 #
 # Returns
 #   0 — success; three newline-separated fields are printed to stdout:
@@ -75,4 +75,46 @@ parse_job_line() {
     [[ -n "$iso_path" && -n "$adapter_name" && -n "$destination_spec" ]] || return 1
 
     printf '%s\n%s\n%s\n' "$iso_path" "$adapter_name" "$destination_spec"
+}
+
+# ─── parse_hdl_destination ────────────────────────────────────────────────────
+# Adapter-specific parser for the `hdl` destination_spec. An `hdl` job line
+# carries one extra pipe-delimited field after the adapter name, absorbed into
+# destination_spec by parse_job_line:
+#
+#     ~<iso>|hdl|<format>|<title>~
+#                ^^^^^^^^^^^^^^^^
+#                └── combined destination_spec seen by this parser
+#
+# Field order is driven by the job-line regex: the destination slot only
+# permits [A-Za-z0-9_./-], which fits the format literals cd/dvd but not
+# titles that contain spaces or parentheses (e.g. "Shadow of the Colossus").
+# Titles ride in the trailing-field slot, whose regex allows spaces and ( ).
+#
+# The host-side HDD device and the hdl_dump install target are operator-wide
+# values, not per-job, and live in env vars (HDL_HOST_DEVICE,
+# HDL_INSTALL_TARGET) supplied by the wrapper.
+#
+# Parameters
+#   $1  combined — the destination_spec returned by parse_job_line, i.e.
+#                  "<format>|<title>"
+#
+# Returns
+#   0 — success; two newline-separated fields are printed to stdout:
+#         line 1: format — literal "cd" or "dvd"
+#         line 2: title  — PS2 title name to inject / look up
+#   1 — failure; any field missing, extra trailing field, or format literal
+#       not in the allowed set. Nothing is printed.
+# ──────────────────────────────────────────────────────────────────────────────
+parse_hdl_destination() {
+    local combined="$1"
+    local format title extra
+
+    IFS='|' read -r format title extra <<< "$combined"
+
+    [[ -n "$format" && -n "$title" ]] || return 1
+    [[ -z "$extra" ]] || return 1
+    [[ "$format" == "cd" || "$format" == "dvd" ]] || return 1
+
+    printf '%s\n%s\n' "$format" "$title"
 }

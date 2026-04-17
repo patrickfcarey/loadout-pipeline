@@ -17,12 +17,26 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   p7zip-full                         — archive extraction
 #   dosfstools                         — mkfs.vfat for the SD loopback
 #   util-linux, mount                  — losetup, mount, stat, flock, unshare
-#   rsync                              — sdcard adapter + real rsync adapter
+#   rsync                              — lvol adapter + real rsync adapter
 #   openssh-server, openssh-client     — rsync-over-ssh to localhost
-#   pure-ftpd                          — ftp adapter loopback
+#   pure-ftpd                          — ftp adapter loopback server
+#   lftp                               — ftp adapter client (mirror mode)
+#   curl                               — ftp precheck (`curl --list-only` probe)
 #   rclone                             — rclone adapter loopback (type=local)
 #   jq                                 — occasional JSON probing in helpers
 #   ca-certificates                    — rclone TLS, apt-get sanity
+#   passwd                             — useradd/chpasswd for ftp authenticated user
+#   xorriso                            — synthetic PS2 ISO generation for Test 15
+#
+# NOTE on hdl_dump: a real end-to-end inject requires a PS2 HDD that has been
+# pre-formatted with an APA partition table AND has a signed MBR KELF written
+# into the OSD area. The KELF is a cryptographically-signed PS2 executable we
+# cannot ship or synthesize in CI. Accordingly, Test 15 exercises our adapter
+# and precheck against a lightweight shim `hdl_dump` mock that the integration
+# bootstrap installs into /usr/local/bin. The shim implements just enough of
+# the real CLI (`toc`, `inject_cd`, `inject_dvd`) to verify our wire-level
+# contract: correct subcommand, correct args, correct scoped-config handling
+# via HOME redirection. Production invocations use the real upstream binary.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         bash \
@@ -37,10 +51,15 @@ RUN apt-get update \
         openssh-server \
         openssh-client \
         pure-ftpd \
+        lftp \
+        curl \
         rclone \
         jq \
         ca-certificates \
+        passwd \
+        iproute2 \
         docker.io \
+        xorriso \
  && rm -rf /var/lib/apt/lists/*
 
 # sshd needs /run/sshd to exist before it can start.

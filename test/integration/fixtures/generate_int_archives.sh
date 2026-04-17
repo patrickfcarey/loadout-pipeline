@@ -152,5 +152,72 @@ if _int_need_archive "$ISOS_DIR/wrapper_ambig.7z"; then
     _int_pack "$ISOS_DIR/wrapper_ambig.7z" "$d"
 fi
 
+# ─── wrapper_inner_strip.7z — strip-list file inside the wrapper dir ──────
+# The strip target ("Vimm's Lair.txt") lives inside the wrapper directory,
+# not at the top level. The strip pass must find and remove it even after
+# flatten lifts the wrapper contents up one level.
+if _int_need_archive "$ISOS_DIR/wrapper_inner_strip.7z"; then
+    d="$SOURCES_DIR/wrapper_inner_strip"
+    mkdir -p "$d"; rm -rf "$d"/*
+    mkdir -p "$d/MyGame"
+    _int_random_iso "$d/MyGame/wrapper_inner_strip.iso" $(( 512 * 1024 ))
+    printf 'Ripped by Vimms Lair\n' > "$d/MyGame/Vimm's Lair.txt"
+    _int_pack "$ISOS_DIR/wrapper_inner_strip.7z" "$d"
+fi
+
+# ─── wrapper_two_dirs.7z — two top-level directories (ambiguous) ─────────
+# Two directories at the top level: extract.sh must refuse to flatten
+# because there is no single unambiguous wrapper to lift.
+if _int_need_archive "$ISOS_DIR/wrapper_two_dirs.7z"; then
+    d="$SOURCES_DIR/wrapper_two_dirs"
+    mkdir -p "$d"; rm -rf "$d"/*
+    mkdir -p "$d/DirA" "$d/DirB"
+    _int_random_iso "$d/DirA/a.iso" $(( 512 * 1024 ))
+    _int_random_iso "$d/DirB/b.iso" $(( 512 * 1024 ))
+    _int_pack "$ISOS_DIR/wrapper_two_dirs.7z" "$d"
+fi
+
+# ─── ps2_synth.7z — synthetic PS2 ISO with valid SYSTEM.CNF ────────────────
+# hdl_dump sniffs the ISO's SYSTEM.CNF for a BOOT2 line to extract the
+# title-id (SLUS_999.99 here). A real PS2 game ships a hundred-plus files;
+# for the integration test we only need hdl_dump to accept the inject and
+# later round-trip via `hdl_dump toc`. The synthetic image is ≤10 MB so it
+# exercises the `cd` path (DVD threshold in hdl_dump is ~675 MB).
+if _int_need_archive "$ISOS_DIR/ps2_synth.7z"; then
+    d="$SOURCES_DIR/ps2_synth"
+    mkdir -p "$d"; rm -rf "$d"/*
+    iso_staging="$SOURCES_DIR/ps2_iso_staging"
+    mkdir -p "$iso_staging"; rm -rf "$iso_staging"/*
+
+    # Valid-enough SYSTEM.CNF. CRLF line endings match the PS2 console
+    # convention and some hdl_dump forks require them. The BOOT2 line
+    # encodes the PS2 title id the pipeline tests look up later.
+    printf 'BOOT2 = cdrom0:\\SLUS_999.99;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n' \
+        > "$iso_staging/SYSTEM.CNF"
+
+    # Pad out to ~8 MB so there's something for hdl_dump to chew on.
+    dd if=/dev/urandom of="$iso_staging/DATA.DAT" \
+        bs=1024 count=7168 >/dev/null 2>&1
+
+    if command -v xorriso >/dev/null 2>&1; then
+        xorriso -as mkisofs -quiet \
+            -V "LOADOUT_PS2_SYNTH" \
+            -o "$d/ps2_synth.iso" \
+            "$iso_staging" >/dev/null 2>&1 \
+            || { echo "[int-fix] xorriso failed" >&2; exit 1; }
+    elif command -v genisoimage >/dev/null 2>&1; then
+        genisoimage -quiet \
+            -V "LOADOUT_PS2_SYNTH" \
+            -o "$d/ps2_synth.iso" \
+            "$iso_staging" >/dev/null 2>&1 \
+            || { echo "[int-fix] genisoimage failed" >&2; exit 1; }
+    else
+        echo "[int-fix] neither xorriso nor genisoimage installed — cannot build ps2_synth" >&2
+        exit 1
+    fi
+
+    _int_pack "$ISOS_DIR/ps2_synth.7z" "$d"
+fi
+
 echo "[int-fix] archives ready in $ISOS_DIR/"
 ls -lh "$ISOS_DIR" | sed 's/^/[int-fix]   /'

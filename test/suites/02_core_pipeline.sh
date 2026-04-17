@@ -79,8 +79,8 @@ header "Test 6: custom EXTRACT_DIR override"
 CUSTOM_EXTRACT="/tmp/iso_pipeline_test_extract_$$"
 CUSTOM_SD6="/tmp/iso_pipeline_test_sd6_$$"
 mkdir -p "$CUSTOM_SD6"
-echo "  cmd: EXTRACT_DIR=$CUSTOM_EXTRACT SD_MOUNT_POINT=$CUSTOM_SD6 bash bin/loadout-pipeline.sh test/example.jobs"
-EXTRACT_DIR="$CUSTOM_EXTRACT" SD_MOUNT_POINT="$CUSTOM_SD6" bash "$PIPELINE" "$TEST_JOBS"
+echo "  cmd: EXTRACT_DIR=$CUSTOM_EXTRACT LVOL_MOUNT_POINT=$CUSTOM_SD6 bash bin/loadout-pipeline.sh test/example.jobs"
+EXTRACT_DIR="$CUSTOM_EXTRACT" LVOL_MOUNT_POINT="$CUSTOM_SD6" bash "$PIPELINE" "$TEST_JOBS"
 assert_all_extracted "$CUSTOM_EXTRACT"
 rm -rf "$CUSTOM_EXTRACT" "$CUSTOM_SD6"
 
@@ -96,9 +96,9 @@ T7_DIR="/tmp/iso_pipeline_test_jobsdir_$$"
 mkdir -p "$T7_DIR"
 # Split example.jobs into two files inside the dir. Each half contains only
 # some of the jobs; only reading both gives the full set the assertions expect.
-grep -v '^#' "$TEST_JOBS" | grep -v '^$' > "$T7_DIR/all.jobs.tmp"
-head -n 2 "$T7_DIR/all.jobs.tmp" > "$T7_DIR/a_first.jobs"
-tail -n +3 "$T7_DIR/all.jobs.tmp" > "$T7_DIR/b_rest.jobs"
+grep -v '^#' "$TEST_JOBS" | grep -v '^$' | grep -v '^---' > "$T7_DIR/all.jobs.tmp"
+{ echo '---JOBS---'; head -n 2 "$T7_DIR/all.jobs.tmp"; echo '---END---'; } > "$T7_DIR/a_first.jobs"
+{ echo '---JOBS---'; tail -n +3 "$T7_DIR/all.jobs.tmp"; echo '---END---'; } > "$T7_DIR/b_rest.jobs"
 rm -f "$T7_DIR/all.jobs.tmp"
 # A non-.jobs file must be ignored by the directory loader.
 echo "this file must be ignored" > "$T7_DIR/README.txt"

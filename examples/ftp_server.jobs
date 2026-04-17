@@ -7,6 +7,8 @@
 # The destination field is the remote path on the FTP server.
 # format: ~iso_path|adapter|destination~
 
+---JOBS---
 ~/isos/ps1/crash_bandicoot.7z|ftp|/games/ps1/crash_bandicoot~
 ~/isos/ps1/spyro.7z|ftp|/games/ps1/spyro~
 ~/isos/ps2/shadow_of_the_colossus.7z|ftp|/games/ps2/shadow_of_the_colossus~
+---END---

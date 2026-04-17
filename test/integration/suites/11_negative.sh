@@ -139,8 +139,12 @@ neg_check "assert_mtime_unchanged: real mtime does not equal epoch 0" \
 
 header "Int Negative N11: assert_fs_bytes_below with impossibly low limit"
 
+# Write some data so the tmpfs has non-zero usage regardless of
+# inter-suite cleanup running before this suite.
+dd if=/dev/urandom of="$INT_EXTRACT/n11_ballast" bs=4096 count=1 2>/dev/null
 neg_check "assert_fs_bytes_below: used bytes far exceed limit of 1" \
     assert_fs_bytes_below "$INT_EXTRACT" "1" "N11 fs"
+rm -f "$INT_EXTRACT/n11_ballast"
 
 # ─── N12: assert_queue_empty with a leftover .job file ───────────────────────
 #
@@ -151,7 +155,7 @@ header "Int Negative N12: assert_queue_empty with a leftover .job file"
 
 N12_QUEUE="$INT_QUEUE/n12"
 mkdir -p "$N12_QUEUE"
-printf '~%s/small.7z|sd|n12/small~\n' "$INT_FIXTURES" > "$N12_QUEUE/leftover.job"
+printf '~%s/small.7z|lvol|n12/small~\n' "$INT_FIXTURES" > "$N12_QUEUE/leftover.job"
 
 neg_check "assert_queue_empty: .job file is present" \
     assert_queue_empty "$N12_QUEUE"

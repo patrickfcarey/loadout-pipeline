@@ -14,10 +14,11 @@
 # Returns the PID of the watcher subshell so the caller can wait on or kill
 # it if the test finishes before the watcher has fired.
 #
-# $1 pattern — argv substring to match with pgrep -f
-# $2 delay   — seconds to wait after the first match (float ok)
+# $1 pattern  — argv substring to match with pgrep -f
+# $2 delay    — seconds to wait after the first match (float ok)
+# $3 sentinel — (optional) file path; touched iff SIGKILL was delivered
 inject_sigkill_after() {
-    local pattern="$1" delay="$2"
+    local pattern="$1" delay="$2" sentinel="${3:-}"
     (
         # Poll up to 30s for the target to appear.
         local target i=0
@@ -29,7 +30,9 @@ inject_sigkill_after() {
         done
         [[ -z "$target" ]] && exit 0
         sleep "$delay"
-        kill -9 "$target" 2>/dev/null || true
+        if kill -9 "$target" 2>/dev/null; then
+            [[ -n "$sentinel" ]] && touch "$sentinel"
+        fi
     ) &
     printf '%s' "$!"
 }

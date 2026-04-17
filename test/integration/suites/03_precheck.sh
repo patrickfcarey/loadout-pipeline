@@ -2,7 +2,7 @@
 # test/integration/suites/03_precheck.sh
 #
 # Precheck (already-at-destination) logic, exercised against a real
-# vfat SD card mount. Every scenario here pre-populates bytes on the
+# vfat local volume mount. Every scenario here pre-populates bytes on the
 # mounted filesystem before the pipeline runs and verifies the real
 # skip/partial/full behaviour.
 
@@ -22,11 +22,12 @@ mkdir -p "$T5_EXTRACT" "$INT_SD_VFAT/t5/small"
 # pipeline's copy path despite a precheck hit would update mtime.
 pre_epoch=$(stat -c '%Y' "$INT_SD_VFAT/t5/small/small.iso")
 
-printf '~%s/small.7z|sd|t5/small~\n' "$INT_FIXTURES" > "$T5_JOBS"
+{ echo '---JOBS---'; echo "~$INT_FIXTURES/small.7z|lvol|t5/small~"; echo '---END---'; } > "$T5_JOBS"
 
 set +e
 EXTRACT_DIR="$T5_EXTRACT" QUEUE_DIR="$INT_QUEUE/t5" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+RESUME_PLANNER_IND=0 \
 bash "$PIPELINE" "$T5_JOBS" >"$T5_LOG" 2>&1
 t5_rc=$?
 set -e
@@ -39,6 +40,11 @@ assert_file_absent "$T5_EXTRACT/small/small.iso" "Test 5 extract skipped"
 # mtime on vfat has 2s granularity; sleep just long enough that a real
 # rewrite would be visible before the assert.
 assert_mtime_unchanged "$INT_SD_VFAT/t5/small/small.iso" "$pre_epoch" "Test 5 mtime"
+if grep -qF '[skip]' "$T5_LOG"; then
+    pass "Test 5 precheck logged [skip]"
+else
+    fail "Test 5 precheck did not log [skip]"
+fi
 
 header "Int Test 6: precheck skip — multi-member archive fully present"
 
@@ -48,18 +54,26 @@ T6_LOG="$INT_STATE/t6.log"
 rm -rf "$T6_EXTRACT" "$INT_SD_VFAT/t6"
 mkdir -p "$T6_EXTRACT" "$INT_SD_VFAT/t6/multi"
 ( cd "$INT_SD_VFAT/t6/multi" && 7z x -y "$INT_FIXTURES/multi.7z" >/dev/null )
+t6_pre_epoch=$(stat -c '%Y' "$INT_SD_VFAT/t6/multi/multi.bin")
 
-printf '~%s/multi.7z|sd|t6/multi~\n' "$INT_FIXTURES" > "$T6_JOBS"
+{ echo '---JOBS---'; echo "~$INT_FIXTURES/multi.7z|lvol|t6/multi~"; echo '---END---'; } > "$T6_JOBS"
 
 set +e
 EXTRACT_DIR="$T6_EXTRACT" QUEUE_DIR="$INT_QUEUE/t6" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+RESUME_PLANNER_IND=0 \
 bash "$PIPELINE" "$T6_JOBS" >"$T6_LOG" 2>&1
 t6_rc=$?
 set -e
 
 assert_rc "$t6_rc" 0 "Test 6 pipeline rc"
 assert_file_absent "$T6_EXTRACT/multi/multi.bin" "Test 6 extract skipped"
+assert_mtime_unchanged "$INT_SD_VFAT/t6/multi/multi.bin" "$t6_pre_epoch" "Test 6 mtime"
+if grep -q '\[skip\].*multi\.7z' "$T6_LOG"; then
+    pass "Test 6 precheck logged [skip]"
+else
+    fail "Test 6 precheck did not log [skip]"
+fi
 
 header "Int Test 7: precheck partial hit — must re-extract"
 
@@ -71,11 +85,11 @@ mkdir -p "$T7_EXTRACT" "$INT_SD_VFAT/t7/multi"
 # Only half the archive is present — the real precheck must not short-circuit.
 printf 'partial bin\n' > "$INT_SD_VFAT/t7/multi/multi.bin"
 
-printf '~%s/multi.7z|sd|t7/multi~\n' "$INT_FIXTURES" > "$T7_JOBS"
+{ echo '---JOBS---'; echo "~$INT_FIXTURES/multi.7z|lvol|t7/multi~"; echo '---END---'; } > "$T7_JOBS"
 
 set +e
 EXTRACT_DIR="$T7_EXTRACT" QUEUE_DIR="$INT_QUEUE/t7" \
-SD_MOUNT_POINT="$INT_SD_VFAT" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
 bash "$PIPELINE" "$T7_JOBS" >"$T7_LOG" 2>&1
 t7_rc=$?
 set -e

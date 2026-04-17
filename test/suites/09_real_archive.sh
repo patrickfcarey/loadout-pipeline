@@ -42,11 +42,11 @@ if [[ -z "$REAL_ARCHIVE" ]]; then
 else
     echo "  archive: $REAL_ARCHIVE ($(du -sh "$REAL_ARCHIVE" 2>/dev/null | cut -f1))"
     mkdir -p "$REAL_EXTRACT" "$REAL_SD_DIR"
-    printf '~%s|sd|ps2~\n' "$REAL_ARCHIVE" > "$REAL_JOBS"
+    { echo '---JOBS---'; echo "~$REAL_ARCHIVE|lvol|ps2~"; echo '---END---'; } > "$REAL_JOBS"
 
     set +e
     EXTRACT_DIR="$REAL_EXTRACT" \
-    SD_MOUNT_POINT="$REAL_SD_DIR" \
+    LVOL_MOUNT_POINT="$REAL_SD_DIR" \
     bash "$PIPELINE" "$REAL_JOBS" >"$REAL_LOG" 2>&1
     real_rc=$?
     set -e

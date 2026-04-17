@@ -64,16 +64,18 @@ printf 'wf5 B\n' > "$WF_SRC/wf5/DirB/b.iso"
 # are expected to fail extract but MUST NOT prevent WF1/WF2/WF3 from
 # dispatching successfully on the same run.
 {
-    echo "~$WF_ISO/wf1.7z|sd|wf1/out~"
-    echo "~$WF_ISO/wf2.7z|sd|wf2/out~"
-    echo "~$WF_ISO/wf3.7z|sd|wf3/out~"
-    echo "~$WF_ISO/wf4.7z|sd|wf4/out~"
-    echo "~$WF_ISO/wf5.7z|sd|wf5/out~"
+    echo "---JOBS---"
+    echo "~$WF_ISO/wf1.7z|lvol|wf1/out~"
+    echo "~$WF_ISO/wf2.7z|lvol|wf2/out~"
+    echo "~$WF_ISO/wf3.7z|lvol|wf3/out~"
+    echo "~$WF_ISO/wf4.7z|lvol|wf4/out~"
+    echo "~$WF_ISO/wf5.7z|lvol|wf5/out~"
+    echo "---END---"
 } > "$WF_JOBS"
 
-echo "  cmd: EXTRACT_DIR=$WF_EXTRACT SD_MOUNT_POINT=$WF_SD bash bin/loadout-pipeline.sh $WF_JOBS"
+echo "  cmd: EXTRACT_DIR=$WF_EXTRACT LVOL_MOUNT_POINT=$WF_SD bash bin/loadout-pipeline.sh $WF_JOBS"
 set +e
-EXTRACT_DIR="$WF_EXTRACT" SD_MOUNT_POINT="$WF_SD" \
+EXTRACT_DIR="$WF_EXTRACT" LVOL_MOUNT_POINT="$WF_SD" \
     bash "$PIPELINE" "$WF_JOBS" >"$WF_LOG" 2>&1
 wf_rc=$?
 set -e

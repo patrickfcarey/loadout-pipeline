@@ -23,8 +23,8 @@ printf 'pre-existing stub iso\n' > "$CUSTOM_SD/games/game3/game3.iso"
 # directly. The planner would otherwise drop the satisfied job upstream and
 # the [skip] log line below would never appear. Test 12A covers the
 # planner-enabled equivalent; see test/suites/12_resume_planner.sh.
-echo "  cmd: RESUME_PLANNER_IND=0 SD_MOUNT_POINT=$CUSTOM_SD EXTRACT_DIR=$CUSTOM_EXTRACT7 bash bin/loadout-pipeline.sh test/example.jobs"
-RESUME_PLANNER_IND=0 SD_MOUNT_POINT="$CUSTOM_SD" EXTRACT_DIR="$CUSTOM_EXTRACT7" \
+echo "  cmd: RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT=$CUSTOM_SD EXTRACT_DIR=$CUSTOM_EXTRACT7 bash bin/loadout-pipeline.sh test/example.jobs"
+RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT="$CUSTOM_SD" EXTRACT_DIR="$CUSTOM_EXTRACT7" \
     bash "$PIPELINE" "$TEST_JOBS" >"$TEST_LOG" 2>&1 || true
 
 if grep -E '^\[skip\].*game3\.7z.*already exists at destination' "$TEST_LOG" >/dev/null; then
@@ -56,7 +56,7 @@ rm -rf "$CUSTOM_SD" "$CUSTOM_EXTRACT7" "$TEST_LOG"
 header "Test 8: multi-file archive (.bin + .cue)"
 MULTI_EXTRACT="/tmp/iso_pipeline_test_multi_$$"
 MULTI_JOBS="/tmp/iso_pipeline_test_multi_$$.jobs"
-echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|sd|games/game4~" > "$MULTI_JOBS"
+{ echo '---JOBS---'; echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|lvol|games/game4~"; echo '---END---'; } > "$MULTI_JOBS"
 echo "  cmd: EXTRACT_DIR=$MULTI_EXTRACT bash bin/loadout-pipeline.sh $MULTI_JOBS"
 EXTRACT_DIR="$MULTI_EXTRACT" bash "$PIPELINE" "$MULTI_JOBS"
 
@@ -86,13 +86,13 @@ MULTI_LOG9="/tmp/iso_pipeline_test_multi9_$$.log"
 mkdir -p "$MULTI_SD/games/game4"
 printf 'prepopulated bin\n' > "$MULTI_SD/games/game4/game4.bin"
 printf 'prepopulated cue\n' > "$MULTI_SD/games/game4/game4.cue"
-echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|sd|games/game4~" > "$MULTI_JOBS9"
+{ echo '---JOBS---'; echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|lvol|games/game4~"; echo '---END---'; } > "$MULTI_JOBS9"
 # Disable the resume planner so this test exercises precheck directly on a
 # fully-satisfied multi-file archive. Test 12A covers the planner-enabled
 # equivalent for single-file archives; the multi-file planner path is
 # exercised by Test 12C's partial-hit companion.
-echo "  cmd: RESUME_PLANNER_IND=0 SD_MOUNT_POINT=$MULTI_SD EXTRACT_DIR=$MULTI_EXTRACT9 bash bin/loadout-pipeline.sh $MULTI_JOBS9"
-RESUME_PLANNER_IND=0 SD_MOUNT_POINT="$MULTI_SD" EXTRACT_DIR="$MULTI_EXTRACT9" \
+echo "  cmd: RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT=$MULTI_SD EXTRACT_DIR=$MULTI_EXTRACT9 bash bin/loadout-pipeline.sh $MULTI_JOBS9"
+RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT="$MULTI_SD" EXTRACT_DIR="$MULTI_EXTRACT9" \
     bash "$PIPELINE" "$MULTI_JOBS9" >"$MULTI_LOG9" 2>&1 || true
 
 if grep -E '^\[skip\].*game4\.7z.*already exists at destination' "$MULTI_LOG9" >/dev/null; then
@@ -123,9 +123,9 @@ PARTIAL_JOBS="/tmp/iso_pipeline_test_partial_$$.jobs"
 PARTIAL_LOG="/tmp/iso_pipeline_test_partial_$$.log"
 mkdir -p "$PARTIAL_SD/games/game4"
 printf 'only bin present\n' > "$PARTIAL_SD/games/game4/game4.bin"
-echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|sd|games/game4~" > "$PARTIAL_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$PARTIAL_SD EXTRACT_DIR=$PARTIAL_EXTRACT bash bin/loadout-pipeline.sh $PARTIAL_JOBS"
-SD_MOUNT_POINT="$PARTIAL_SD" EXTRACT_DIR="$PARTIAL_EXTRACT" \
+{ echo '---JOBS---'; echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|lvol|games/game4~"; echo '---END---'; } > "$PARTIAL_JOBS"
+echo "  cmd: LVOL_MOUNT_POINT=$PARTIAL_SD EXTRACT_DIR=$PARTIAL_EXTRACT bash bin/loadout-pipeline.sh $PARTIAL_JOBS"
+LVOL_MOUNT_POINT="$PARTIAL_SD" EXTRACT_DIR="$PARTIAL_EXTRACT" \
     bash "$PIPELINE" "$PARTIAL_JOBS" >"$PARTIAL_LOG" 2>&1
 
 if grep -E '^\[skip\]' "$PARTIAL_LOG" >/dev/null; then

@@ -16,7 +16,7 @@
 #   12D  strip-list member absent at dest does NOT force re-processing
 #   12E  RESUME_PLANNER_IND=0 bypasses the planner; precheck still skips
 #   12F  non-sd (stub) adapters are always kept regardless of state
-#   12G  destination that resolves outside SD_MOUNT_POINT is refused
+#   12G  destination that resolves outside LVOL_MOUNT_POINT is refused
 
 _rp_common_reset() {
     local dir="$1"
@@ -36,11 +36,13 @@ mkdir -p "$RP12A_SD/a/2"
 # Pre-populate dest for game1 with the exact member the archive contains.
 printf 'prepopulated game1 iso\n' > "$RP12A_SD/a/1/game1.iso"
 {
-    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|a/1~"
-    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|sd|a/2~"
+    echo "---JOBS---"
+    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|a/1~"
+    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|lvol|a/2~"
+    echo "---END---"
 } > "$RP12A_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$RP12A_SD EXTRACT_DIR=$RP12A_EXTRACT bash bin/loadout-pipeline.sh $RP12A_JOBS"
-SD_MOUNT_POINT="$RP12A_SD" EXTRACT_DIR="$RP12A_EXTRACT" QUEUE_DIR="$RP12A_QUEUE" \
+echo "  cmd: LVOL_MOUNT_POINT=$RP12A_SD EXTRACT_DIR=$RP12A_EXTRACT bash bin/loadout-pipeline.sh $RP12A_JOBS"
+LVOL_MOUNT_POINT="$RP12A_SD" EXTRACT_DIR="$RP12A_EXTRACT" QUEUE_DIR="$RP12A_QUEUE" \
     bash "$PIPELINE" "$RP12A_JOBS" >"$RP12A_LOG" 2>&1
 
 if grep -E 'resume planner: 1 of 2 already satisfied' "$RP12A_LOG" >/dev/null; then
@@ -77,11 +79,13 @@ RP12B_JOBS="/tmp/iso_pipeline_test_rp12b_$$.jobs"
 RP12B_LOG="/tmp/iso_pipeline_test_rp12b_$$.log"
 _rp_common_reset "$RP12B_SD"
 {
-    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|b/1~"
-    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|sd|b/2~"
+    echo "---JOBS---"
+    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|b/1~"
+    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|lvol|b/2~"
+    echo "---END---"
 } > "$RP12B_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$RP12B_SD EXTRACT_DIR=$RP12B_EXTRACT bash bin/loadout-pipeline.sh $RP12B_JOBS"
-SD_MOUNT_POINT="$RP12B_SD" EXTRACT_DIR="$RP12B_EXTRACT" QUEUE_DIR="$RP12B_QUEUE" \
+echo "  cmd: LVOL_MOUNT_POINT=$RP12B_SD EXTRACT_DIR=$RP12B_EXTRACT bash bin/loadout-pipeline.sh $RP12B_JOBS"
+LVOL_MOUNT_POINT="$RP12B_SD" EXTRACT_DIR="$RP12B_EXTRACT" QUEUE_DIR="$RP12B_QUEUE" \
     bash "$PIPELINE" "$RP12B_JOBS" >"$RP12B_LOG" 2>&1
 
 if grep -E 'resume planner: 0 of 2 already satisfied' "$RP12B_LOG" >/dev/null; then
@@ -107,9 +111,9 @@ RP12C_LOG="/tmp/iso_pipeline_test_rp12c_$$.log"
 mkdir -p "$RP12C_SD/c/multi"
 # Only game4.bin is present; game4.cue is missing. Archive is not satisfied.
 printf 'only bin present\n' > "$RP12C_SD/c/multi/game4.bin"
-echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|sd|c/multi~" > "$RP12C_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$RP12C_SD EXTRACT_DIR=$RP12C_EXTRACT bash bin/loadout-pipeline.sh $RP12C_JOBS"
-SD_MOUNT_POINT="$RP12C_SD" EXTRACT_DIR="$RP12C_EXTRACT" QUEUE_DIR="$RP12C_QUEUE" \
+{ echo '---JOBS---'; echo "~$ROOT_DIR/test/fixtures/isos/game4.7z|lvol|c/multi~"; echo '---END---'; } > "$RP12C_JOBS"
+echo "  cmd: LVOL_MOUNT_POINT=$RP12C_SD EXTRACT_DIR=$RP12C_EXTRACT bash bin/loadout-pipeline.sh $RP12C_JOBS"
+LVOL_MOUNT_POINT="$RP12C_SD" EXTRACT_DIR="$RP12C_EXTRACT" QUEUE_DIR="$RP12C_QUEUE" \
     bash "$PIPELINE" "$RP12C_JOBS" >"$RP12C_LOG" 2>&1
 
 if grep -E 'resume planner: 0 of 1 already satisfied' "$RP12C_LOG" >/dev/null; then
@@ -143,9 +147,9 @@ printf 'metadata scraped stuff\n' > "$RP12D_SRC/Vimm's Lair.txt"
 # Pre-populate dest with ONLY the real payload. The planner must recognise
 # "Vimm's Lair.txt" as strip-listed and count the job as fully satisfied.
 printf 'real payload iso\n' > "$RP12D_SD/d/with_strip.iso"
-echo "~$RP12D_ARCHIVE|sd|d~" > "$RP12D_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$RP12D_SD EXTRACT_DIR=$RP12D_EXTRACT bash bin/loadout-pipeline.sh $RP12D_JOBS"
-SD_MOUNT_POINT="$RP12D_SD" EXTRACT_DIR="$RP12D_EXTRACT" QUEUE_DIR="$RP12D_QUEUE" \
+{ echo '---JOBS---'; echo "~$RP12D_ARCHIVE|lvol|d~"; echo '---END---'; } > "$RP12D_JOBS"
+echo "  cmd: LVOL_MOUNT_POINT=$RP12D_SD EXTRACT_DIR=$RP12D_EXTRACT bash bin/loadout-pipeline.sh $RP12D_JOBS"
+LVOL_MOUNT_POINT="$RP12D_SD" EXTRACT_DIR="$RP12D_EXTRACT" QUEUE_DIR="$RP12D_QUEUE" \
     bash "$PIPELINE" "$RP12D_JOBS" >"$RP12D_LOG" 2>&1
 
 if grep -E 'resume planner: 1 of 1 already satisfied' "$RP12D_LOG" >/dev/null; then
@@ -171,11 +175,13 @@ RP12E_LOG="/tmp/iso_pipeline_test_rp12e_$$.log"
 mkdir -p "$RP12E_SD/e/1" "$RP12E_SD/e/2"
 printf 'prepopulated game1 iso\n' > "$RP12E_SD/e/1/game1.iso"
 {
-    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|e/1~"
-    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|sd|e/2~"
+    echo "---JOBS---"
+    echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|e/1~"
+    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|lvol|e/2~"
+    echo "---END---"
 } > "$RP12E_JOBS"
-echo "  cmd: RESUME_PLANNER_IND=0 SD_MOUNT_POINT=$RP12E_SD bash bin/loadout-pipeline.sh $RP12E_JOBS"
-RESUME_PLANNER_IND=0 SD_MOUNT_POINT="$RP12E_SD" EXTRACT_DIR="$RP12E_EXTRACT" QUEUE_DIR="$RP12E_QUEUE" \
+echo "  cmd: RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT=$RP12E_SD bash bin/loadout-pipeline.sh $RP12E_JOBS"
+RESUME_PLANNER_IND=0 LVOL_MOUNT_POINT="$RP12E_SD" EXTRACT_DIR="$RP12E_EXTRACT" QUEUE_DIR="$RP12E_QUEUE" \
     bash "$PIPELINE" "$RP12E_JOBS" >"$RP12E_LOG" 2>&1
 
 if grep -E 'resume planner: disabled' "$RP12E_LOG" >/dev/null; then
@@ -199,28 +205,30 @@ else
 fi
 rm -rf "$RP12E_SD" "$RP12E_EXTRACT" "$RP12E_QUEUE" "$RP12E_JOBS" "$RP12E_LOG"
 
-# ── Test 12F: stub adapters untouched by planner ─────────────────────────────
-header "Test 12F: resume planner keeps non-sd (stub) adapters"
+# ── Test 12F: non-lvol adapters untouched by planner ────────────────────────
+header "Test 12F: resume planner keeps non-lvol adapters"
 RP12F_EXTRACT="/tmp/iso_pipeline_test_rp12f_extract_$$"
 RP12F_QUEUE="/tmp/iso_pipeline_test_rp12f_queue_$$"
 RP12F_JOBS="/tmp/iso_pipeline_test_rp12f_$$.jobs"
 RP12F_LOG="/tmp/iso_pipeline_test_rp12f_$$.log"
 {
+    echo "---JOBS---"
     echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|ftp|/remote/rp12f/game1~"
-    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|hdl|/dev/hdd0~"
+    echo "~$ROOT_DIR/test/fixtures/isos/game2.7z|hdl|dvd|Game2~"
+    echo "---END---"
 } > "$RP12F_JOBS"
 echo "  cmd: EXTRACT_DIR=$RP12F_EXTRACT bash bin/loadout-pipeline.sh $RP12F_JOBS"
 EXTRACT_DIR="$RP12F_EXTRACT" QUEUE_DIR="$RP12F_QUEUE" \
     bash "$PIPELINE" "$RP12F_JOBS" >"$RP12F_LOG" 2>&1
 
 if grep -E 'resume planner: 0 of 2 already satisfied' "$RP12F_LOG" >/dev/null; then
-    pass "12F planner reported 0 of 2 satisfied for stub adapters"
+    pass "12F planner reported 0 of 2 satisfied for non-lvol adapters"
 else
     fail "12F expected 'resume planner: 0 of 2 already satisfied' in log"
     sed 's/^/      /' "$RP12F_LOG"
 fi
 if [[ -f "$RP12F_EXTRACT/game1/game1.iso" && -f "$RP12F_EXTRACT/game2/game2.iso" ]]; then
-    pass "12F both stub-adapter jobs extracted normally"
+    pass "12F both non-lvol adapter jobs extracted normally"
 else
     fail "12F expected both extracts to complete"
 fi
@@ -230,10 +238,10 @@ rm -rf "$RP12F_EXTRACT" "$RP12F_QUEUE" "$RP12F_JOBS" "$RP12F_LOG"
 #
 # load_jobs rejects literal '..' in the dest field, so the only way to exercise
 # the planner's containment guard end-to-end is to set up a symlink under
-# SD_MOUNT_POINT that resolves outside it. The planner must refuse to plan
+# LVOL_MOUNT_POINT that resolves outside it. The planner must refuse to plan
 # (emit a [WARN]) and keep the job; precheck then issues the authoritative
 # exit-2 refusal and the pipeline overall returns non-zero.
-header "Test 12G: resume planner refuses dest that escapes SD_MOUNT_POINT"
+header "Test 12G: resume planner refuses dest that escapes LVOL_MOUNT_POINT"
 RP12G_WORK="/tmp/iso_pipeline_test_rp12g_$$"
 RP12G_SD="$RP12G_WORK/sd"
 RP12G_OUT="$RP12G_WORK/outside"
@@ -242,13 +250,13 @@ RP12G_QUEUE="$RP12G_WORK/queue"
 RP12G_JOBS="$RP12G_WORK/rp12g.jobs"
 RP12G_LOG="$RP12G_WORK/rp12g.log"
 mkdir -p "$RP12G_SD" "$RP12G_OUT" "$RP12G_EXTRACT"
-# Symlink escape_link points outside SD_MOUNT_POINT. A dest of
+# Symlink escape_link points outside LVOL_MOUNT_POINT. A dest of
 # "escape_link/target" resolves to "$RP12G_OUT/target" and fails containment.
 ln -s "$RP12G_OUT" "$RP12G_SD/escape_link"
-echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|sd|escape_link/target~" > "$RP12G_JOBS"
-echo "  cmd: SD_MOUNT_POINT=$RP12G_SD EXTRACT_DIR=$RP12G_EXTRACT bash bin/loadout-pipeline.sh $RP12G_JOBS"
+{ echo '---JOBS---'; echo "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|escape_link/target~"; echo '---END---'; } > "$RP12G_JOBS"
+echo "  cmd: LVOL_MOUNT_POINT=$RP12G_SD EXTRACT_DIR=$RP12G_EXTRACT bash bin/loadout-pipeline.sh $RP12G_JOBS"
 set +e
-SD_MOUNT_POINT="$RP12G_SD" EXTRACT_DIR="$RP12G_EXTRACT" QUEUE_DIR="$RP12G_QUEUE" \
+LVOL_MOUNT_POINT="$RP12G_SD" EXTRACT_DIR="$RP12G_EXTRACT" QUEUE_DIR="$RP12G_QUEUE" \
     bash "$PIPELINE" "$RP12G_JOBS" >"$RP12G_LOG" 2>&1
 rp12g_rc=$?
 set -e
@@ -259,7 +267,7 @@ else
     fail "12G expected planner warning about refusing to plan"
     sed 's/^/      /' "$RP12G_LOG"
 fi
-if grep -E 'precheck: destination escapes SD_MOUNT_POINT' "$RP12G_LOG" >/dev/null; then
+if grep -E 'precheck: destination escapes LVOL_MOUNT_POINT' "$RP12G_LOG" >/dev/null; then
     pass "12G precheck rejected the escaping destination"
 else
     fail "12G expected precheck containment rejection in log"

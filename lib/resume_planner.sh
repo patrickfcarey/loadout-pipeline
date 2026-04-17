@@ -4,10 +4,10 @@
 # =============================================================================
 # Problem
 #   A power outage kills the pipeline mid-run. On restart, the same .jobs
-#   file is re-submitted. Most jobs are already fully dispatched to the SD
-#   card, but each one still forks bash + 7z and stats every member through
-#   the full precheck path. On a 500-job run that's 500 bash forks + 500
-#   7z forks + thousands of stats against a slow SD card before any useful
+#   file is re-submitted. Most jobs are already fully dispatched to the
+#   local volume, but each one still forks bash + 7z and stats every member
+#   through the full precheck path. On a 500-job run that's 500 bash forks
+#   + 500 7z forks + thousands of stats against a slow volume before any useful
 #   work happens.
 #
 # Solution
@@ -28,7 +28,7 @@
 #
 # Cache shape
 #   In-memory, per-run. Two associative arrays:
-#     _resume_dest_cache    — key: absolute destination dir under SD_MOUNT_POINT
+#     _resume_dest_cache    — key: absolute destination dir under LVOL_MOUNT_POINT
 #                             value: NUL-delimited relative paths of every
 #                                    file/symlink beneath that dir (one readdir
 #                                    per unique destination, not per job)
@@ -38,9 +38,10 @@
 #                                    by multiple job lines only pays one 7z l)
 #
 # Scope
-#   sd adapter only. ftp/hdl/rclone/rsync precheck is a stub, so planning
-#   them buys nothing. If those adapters gain real implementations later,
-#   add per-adapter branches in resume_plan.
+#   lvol adapter only. ftp/rclone/rsync precheck is a stub and hdl precheck
+#   is a single hdl_dump toc call — planning them buys nothing. If those
+#   adapters gain cheap-skip precheck implementations later, add per-adapter
+#   branches in resume_plan.
 #
 # Disable switch
 #   RESUME_PLANNER_IND=0 bypasses the planner entirely. Useful for forced
@@ -91,8 +92,8 @@ _resume_plan_member_is_safe() {
 }
 
 # ─── _resume_plan_dest_for_job ────────────────────────────────────────────────
-# Resolves the sd adapter destination for a job and verifies it stays inside
-# SD_MOUNT_POINT. Mirrors the containment guard at lib/precheck.sh:159-174.
+# Resolves the lvol adapter destination for a job and verifies it stays inside
+# LVOL_MOUNT_POINT. Mirrors the containment guard at lib/precheck.sh:159-174.
 # Fails closed on any containment escape so the caller keeps the job — precheck
 # will then issue its authoritative exit 2.
 #
@@ -106,17 +107,17 @@ _resume_plan_member_is_safe() {
 #
 # Locals
 #   dest                  — $1 captured as a named local
-#   local_root            — "$SD_MOUNT_POINT/$dest" before canonicalisation
+#   local_root            — "$LVOL_MOUNT_POINT/$dest" before canonicalisation
 #   local_root_canonical  — realpath -m of local_root
-#   mount_canonical       — realpath -m of SD_MOUNT_POINT
+#   mount_canonical       — realpath -m of LVOL_MOUNT_POINT
 # ──────────────────────────────────────────────────────────────────────────────
 _resume_plan_dest_for_job() {
     local dest="$1"
     command -v realpath >/dev/null 2>&1 || return 1
-    local local_root="${SD_MOUNT_POINT%/}/${dest#/}"
+    local local_root="${LVOL_MOUNT_POINT%/}/${dest#/}"
     local local_root_canonical mount_canonical
     local_root_canonical="$(realpath -m "$local_root")" || return 1
-    mount_canonical="$(realpath -m "${SD_MOUNT_POINT%/}")" || return 1
+    mount_canonical="$(realpath -m "${LVOL_MOUNT_POINT%/}")" || return 1
     case "${local_root_canonical}/" in
         "${mount_canonical}/"*) printf '%s\n' "$local_root_canonical"; return 0 ;;
     esac
@@ -322,7 +323,7 @@ resume_plan() {
         fi
         { read -r archive; read -r adapter; read -r dest; } <<< "$parsed"
 
-        if [[ "$adapter" != "sd" ]]; then
+        if [[ "$adapter" != "lvol" ]]; then
             survivors+=("$raw_job")
             continue
         fi
