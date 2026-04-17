@@ -1,4 +1,22 @@
+---JOBS---
 # format: ~iso_path|adapter|destination~
+#
+# hdl jobs carry one extra field after the adapter:
+#   ~iso|hdl|<cd|dvd>|<title>~
+# <cd|dvd> selects the hdl_dump inject_cd / inject_dvd command;
+# <title> is the PS2 game title to register on the HDD.
+#
+# The hdl_dump install target (hdd0:, hdd1:, …) is operator-wide and set
+# once via the env var HDL_INSTALL_TARGET (see .env.example). An optional
+# HDL_HOST_DEVICE (e.g. sri:) triggers a one-time writability probe at
+# pipeline startup.
 ~/isos/game1.7z|ftp|/remote/path/game1~
-~/isos/game2.7z|hdl|/dev/hdd0~
+~/isos/game2.7z|hdl|dvd|Example PS2 Title~
+
+/*
+  Block comment: these are example entries.
+  Adjust paths and adapters for your setup.
+*/
+
 ~/isos/game3.7z|lvol|games/game3~
+---END---

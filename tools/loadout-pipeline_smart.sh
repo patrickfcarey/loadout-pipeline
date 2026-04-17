@@ -71,6 +71,8 @@ _load_dotenv() {
     FTP_PASS="${FTP_PASS:-}"
     FTP_PORT="${FTP_PORT:-21}"
     HDL_DUMP_BIN="${HDL_DUMP_BIN:-hdl_dump}"
+    HDL_HOST_DEVICE="${HDL_HOST_DEVICE:-}"
+    HDL_INSTALL_TARGET="${HDL_INSTALL_TARGET:-}"
     LVOL_MOUNT_POINT="${LVOL_MOUNT_POINT:-/mnt/lvol}"
     RCLONE_REMOTE="${RCLONE_REMOTE:-}"
     RCLONE_DEST_BASE="${RCLONE_DEST_BASE:-}"
@@ -102,6 +104,8 @@ _load_dotenv() {
         [FTP_PASS]=""
         [FTP_PORT]="21"
         [HDL_DUMP_BIN]="hdl_dump"
+        [HDL_HOST_DEVICE]=""
+        [HDL_INSTALL_TARGET]=""
         [LVOL_MOUNT_POINT]="/mnt/lvol"
         [RCLONE_REMOTE]=""
         [RCLONE_DEST_BASE]=""
@@ -202,7 +206,11 @@ _show_summary() {
                 lines+="| FTP_PASS | ******* |"$'\n'
                 lines+="| FTP_PORT | $FTP_PORT |"$'\n'
                 ;;
-            hdl)    lines+="| HDL_DUMP_BIN | $HDL_DUMP_BIN |"$'\n' ;;
+            hdl)
+                lines+="| HDL_DUMP_BIN | $HDL_DUMP_BIN |"$'\n'
+                lines+="| HDL_HOST_DEVICE | ${HDL_HOST_DEVICE:-(skip probe)} |"$'\n'
+                lines+="| HDL_INSTALL_TARGET | $HDL_INSTALL_TARGET |"$'\n'
+                ;;
             rclone)
                 lines+="| RCLONE_REMOTE | $RCLONE_REMOTE |"$'\n'
                 lines+="| RCLONE_DEST_BASE | $RCLONE_DEST_BASE |"$'\n'
@@ -234,6 +242,63 @@ _show_summary() {
 }
 
 # ─── Path picker ──────────────────────────────────────────────────────────────
+
+# _pick_path_context_rows VAR_NAME
+# Builds newline-separated .env / default shortcut rows for a config variable.
+# Prints nothing when VAR_NAME is empty or has no env/default values.
+_pick_path_context_rows() {
+    local _var="$1"
+    [[ -n "$_var" ]] || return 0
+    if [[ -v "_DOTENV[$_var]" ]] && [[ -n "${_DOTENV[$_var]}" ]]; then
+        printf '.env : %s\n' "${_DOTENV[$_var]}"
+    fi
+    if [[ -v "_DEFAULTS[$_var]" ]] && [[ -n "${_DEFAULTS[$_var]}" ]]; then
+        printf 'default : %s\n' "${_DEFAULTS[$_var]}"
+    fi
+}
+
+# _pick_path_wsl <header> <start_dir> <dir_only> <var>
+# WSL fallback browser using gum filter (gum file has issues under WSL).
+# Loops until the user selects a path or presses Esc.
+_pick_path_wsl() {
+    local _header="$1" _browse_dir="$2" _dir_only="$3" _var="$4"
+    local _context _entries _pick
+
+    _context="$(_pick_path_context_rows "$_var")"
+
+    while true; do
+        # Assemble the selectable entries list
+        _entries=">> USE THIS DIRECTORY <<"$'\n'".."
+        [[ -n "$_context" ]] && _entries+=$'\n'"$_context"
+        local _listing
+        _listing="$(ls -1A "$_browse_dir" 2>/dev/null)" || true
+        [[ -n "$_listing" ]] && _entries+=$'\n'"$_listing"
+
+        _pick="$(echo "$_entries" | gum filter --height 14 \
+            --header "$_header: $_browse_dir")" || return 1
+
+        case "$_pick" in
+            ">> USE THIS DIRECTORY <<")
+                printf '%s' "$_browse_dir"; return 0 ;;
+            "..")
+                _browse_dir="$(dirname "$_browse_dir")" ;;
+            ".env : "*)
+                printf '%s' "${_pick#.env : }"; return 0 ;;
+            "default : "*)
+                printf '%s' "${_pick#default : }"; return 0 ;;
+            *)
+                if [[ -d "$_browse_dir/$_pick" ]]; then
+                    _browse_dir="$_browse_dir/$_pick"
+                elif (( _dir_only )); then
+                    continue
+                else
+                    printf '%s' "$_browse_dir/$_pick"; return 0
+                fi
+                ;;
+        esac
+    done
+}
+
 # _pick_path <header> <start_dir> [--dir-only] [--var VAR_NAME]
 # Prints the selected path to stdout. On WSL uses gum filter browser;
 # on native Linux uses gum file. Pass --dir-only to only allow directories.
@@ -249,44 +314,8 @@ _pick_path() {
         shift
     done
 
-    # Build context rows for .env and default values
-    local _context_rows=""
-    if [[ -n "$_var" ]]; then
-        if [[ -v "_DOTENV[$_var]" ]] && [[ -n "${_DOTENV[$_var]}" ]]; then
-            _context_rows+=".env : ${_DOTENV[$_var]}"$'\n'
-        fi
-        if [[ -v "_DEFAULTS[$_var]" ]] && [[ -n "${_DEFAULTS[$_var]}" ]]; then
-            _context_rows+="default : ${_DEFAULTS[$_var]}"$'\n'
-        fi
-    fi
-
     if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WT_SESSION:-}" ]]; then
-        local _browse_dir="$_start"
-        while true; do
-            local _entries _pick
-            _entries="$(printf '>> USE THIS DIRECTORY <<\n..\n%s' "$_context_rows"; ls -1A "$_browse_dir" 2>/dev/null)" || _entries=".."
-            _pick="$(echo "$_entries" | gum filter --height 14 --header "$_header: $_browse_dir")" \
-                || return 1
-            if [[ "$_pick" == ">> USE THIS DIRECTORY <<" ]]; then
-                printf '%s' "$_browse_dir"
-                return 0
-            elif [[ "$_pick" == ".." ]]; then
-                _browse_dir="$(dirname "$_browse_dir")"
-            elif [[ "$_pick" == ".env : "* ]]; then
-                printf '%s' "${_pick#.env : }"
-                return 0
-            elif [[ "$_pick" == "default : "* ]]; then
-                printf '%s' "${_pick#default : }"
-                return 0
-            elif [[ -d "$_browse_dir/$_pick" ]]; then
-                _browse_dir="$_browse_dir/$_pick"
-            elif (( _dir_only )); then
-                continue
-            else
-                printf '%s' "$_browse_dir/$_pick"
-                return 0
-            fi
-        done
+        _pick_path_wsl "$_header" "$_start" "$_dir_only" "$_var"
     else
         local _gum_args=(--all --show-help)
         if (( _dir_only )); then
@@ -407,6 +436,10 @@ _prompt_hdl() {
     local _input
     _input="$(gum input --header "$(_input_header HDL_DUMP_BIN "(path or command name)")" --value "$HDL_DUMP_BIN")" || return 1
     HDL_DUMP_BIN="$_input"
+    _input="$(gum input --header "$(_input_header HDL_HOST_DEVICE "(e.g. sri: — startup probe target; blank to skip)")" --value "$HDL_HOST_DEVICE")" || return 1
+    HDL_HOST_DEVICE="$_input"
+    _input="$(gum input --header "$(_input_header HDL_INSTALL_TARGET "(e.g. hdd0: — inject target for every hdl job)")" --value "$HDL_INSTALL_TARGET")" || return 1
+    HDL_INSTALL_TARGET="$_input"
 }
 
 _prompt_rclone() {
@@ -587,6 +620,9 @@ _validate_all() {
         _err_msg="$(_val_nonempty FTP_HOST "$FTP_HOST")";                  [[ -n "$_err_msg" ]] && _errs+=("$_err_msg")
         _err_msg="$(_val_pos_int FTP_PORT "$FTP_PORT")";                   [[ -n "$_err_msg" ]] && _errs+=("$_err_msg")
     fi
+    if [[ -v DETECTED[hdl] ]]; then
+        _err_msg="$(_val_nonempty HDL_INSTALL_TARGET "$HDL_INSTALL_TARGET")"; [[ -n "$_err_msg" ]] && _errs+=("$_err_msg")
+    fi
     if [[ -v DETECTED[rclone] ]]; then
         _err_msg="$(_val_nonempty RCLONE_REMOTE "$RCLONE_REMOTE")";        [[ -n "$_err_msg" ]] && _errs+=("$_err_msg")
     fi
@@ -657,6 +693,8 @@ _build_and_launch() {
     fi
     if [[ -v DETECTED[hdl] ]]; then
         env_args+=("HDL_DUMP_BIN=$HDL_DUMP_BIN")
+        env_args+=("HDL_HOST_DEVICE=$HDL_HOST_DEVICE")
+        env_args+=("HDL_INSTALL_TARGET=$HDL_INSTALL_TARGET")
     fi
     if [[ -v DETECTED[rclone] ]]; then
         env_args+=("RCLONE_REMOTE=$RCLONE_REMOTE")
@@ -671,7 +709,27 @@ _build_and_launch() {
         [[ -n "$RSYNC_FLAGS" ]] && env_args+=("RSYNC_FLAGS=$RSYNC_FLAGS")
     fi
 
-    exec env "${env_args[@]}" bash "$PIPELINE_ENTRY" "$JOBS_PATH"
+    local log_file="$QUEUE_DIR/pipeline.log"
+    mkdir -p "$QUEUE_DIR"
+
+    env "${env_args[@]}" bash "$PIPELINE_ENTRY" "$JOBS_PATH" \
+        > "$log_file" 2>&1 &
+    local pipeline_pid=$!
+
+    sleep 1
+
+    bash "$ROOT_DIR/tools/progress_monitor.sh" \
+        "$QUEUE_DIR" "$pipeline_pid" "$log_file" "$JOBS_PATH"
+
+    local pipeline_rc=0
+    wait "$pipeline_pid" || pipeline_rc=$?
+
+    if (( pipeline_rc == 0 )); then
+        echo "Pipeline completed successfully. Log: $log_file"
+    else
+        echo "Pipeline failed (exit code $pipeline_rc). Log: $log_file"
+    fi
+    exit "$pipeline_rc"
 }
 
 # ─── Menu helpers ─────────────────────────────────────────────────────────────
@@ -710,16 +768,7 @@ _action_status() {
         tuning)     echo "${_STATUS_TUNING:-skip}" ;;
         strip)      echo "${_STATUS_STRIP:-skip}" ;;
         validate)
-            if [[ "$(_action_status jobs)" != "ok" || "$(_action_status detect)" != "ok" ]]; then
-                echo "locked"; return
-            fi
-            local _adapter
-            for _adapter in "${!DETECTED[@]}"; do
-                if [[ "$(_action_status "cfg_$_adapter")" != "ok" ]]; then
-                    echo "locked"; return
-                fi
-            done
-            if [[ "$(_action_status workers)" != "ok" || "$(_action_status scratch)" != "ok" ]]; then
+            if [[ "$(_action_status jobs)" != "ok" ]]; then
                 echo "locked"; return
             fi
             echo "${_VALIDATE_STATUS:-pending}"
@@ -748,11 +797,11 @@ _status_icon() {
 # Resets all per-adapter configuration statuses to pending.
 # Called when jobs or adapters change and prior config is invalidated.
 _reset_adapter_statuses() {
-    _STATUS_CFG_LVOL="pending"
-    _STATUS_CFG_FTP="pending"
-    _STATUS_CFG_HDL="pending"
-    _STATUS_CFG_RCLONE="pending"
-    _STATUS_CFG_RSYNC="pending"
+    _STATUS_CFG_LVOL="skip"
+    _STATUS_CFG_FTP="skip"
+    _STATUS_CFG_HDL="skip"
+    _STATUS_CFG_RCLONE="skip"
+    _STATUS_CFG_RSYNC="skip"
 }
 
 _run_validation() {
@@ -813,7 +862,7 @@ _build_menu() {
     if [[ -v DETECTED[hdl] ]]; then
         _status="$(_action_status cfg_hdl)"
         local _hdl_label="Configure HDL"
-        [[ "$_status" == "ok" ]] && _hdl_label="HDL: $HDL_DUMP_BIN"
+        [[ "$_status" == "ok" ]] && _hdl_label="HDL: ${HDL_INSTALL_TARGET:-?} (bin=$HDL_DUMP_BIN)"
         ((++_menu_idx)); _actions[$_menu_idx]="cfg_hdl"
         _items+=("$(_status_icon "$_status") $_menu_idx. $_hdl_label")
     fi
@@ -902,16 +951,17 @@ main() {
     declare -gA DETECTED=()
 
     _banner
+    sleep 3
 
     # Per-action status tracking — read by _action_status() via dynamic scoping.
     # "pending" = not yet configured, "ok" = done, "skip" = optional/unconfigured.
-    local _STATUS_CFG_LVOL="pending"
-    local _STATUS_CFG_FTP="pending"
-    local _STATUS_CFG_HDL="pending"
-    local _STATUS_CFG_RCLONE="pending"
-    local _STATUS_CFG_RSYNC="pending"
-    local _STATUS_WORKERS="pending"
-    local _STATUS_SCRATCH="pending"
+    local _STATUS_CFG_LVOL="skip"
+    local _STATUS_CFG_FTP="skip"
+    local _STATUS_CFG_HDL="skip"
+    local _STATUS_CFG_RCLONE="skip"
+    local _STATUS_CFG_RSYNC="skip"
+    local _STATUS_WORKERS="skip"
+    local _STATUS_SCRATCH="skip"
     local _STATUS_DEBUG="skip"
     local _STATUS_DIRS="skip"
     local _STATUS_TUNING="skip"

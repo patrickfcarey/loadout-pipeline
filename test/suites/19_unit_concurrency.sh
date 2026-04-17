@@ -239,7 +239,7 @@ _u_run_subshell < <(
     reg="$(_wr_path)"
 
     for i in 1 2 3 4 5 6 7 8; do
-        worker_job_begin 55555 "~/j/g${i}.7z|lvol|d${i}~" &
+        worker_job_begin 55555 "extract" "~/j/g${i}.7z|lvol|d${i}~" &
     done
     wait || :
 

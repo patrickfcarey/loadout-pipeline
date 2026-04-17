@@ -7,20 +7,6 @@
 # them deterministically. The ones listed here are the subset that do
 # benefit from a real substrate, per the plan's scenario mapping table.
 
-# ── R1: jobs.sh basename-`.` rejection ─────────────────────────────────────
-#
-# Already covered in the integration security suite (Test 19 Case D).
-# No duplicate here.
-header "Int Test R1: basename '.' guard (covered by Test 19 Case D)"
-pass "R1 covered by int security suite (Test 19 Case D)"
-
-# ── R2: _space_dev infinite-loop guard ─────────────────────────────────────
-#
-# Pure timeout property — unit-suite test R2 under timeout 5 is the right
-# tool. No real-substrate dimension adds value.
-header "Int Test R2: _space_dev termination (unit test is sufficient)"
-pass "R2 covered by unit-suite regression test"
-
 # ── R3: queue_pop rc=1 on empty ────────────────────────────────────────────
 
 header "Int Test R3: queue_pop rc=0 on populated, rc=1 on empty (real substrate)"

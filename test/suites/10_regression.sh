@@ -32,7 +32,7 @@ R1_LOG="/tmp/lp_regression_r1_$$.log"
 
 # "/..7z" is a real filesystem path (root dir + ..7z filename). basename with
 # .7z suffix yields ".". The pipeline MUST refuse to load this job.
-printf '~/..7z|lvol|test/path~\n' > "$R1_JOBS"
+{ echo '---JOBS---'; echo '~/..7z|lvol|test/path~'; echo '---END---'; } > "$R1_JOBS"
 
 R1_RC=0
 bash "$PIPELINE" "$R1_JOBS" >"$R1_LOG" 2>&1 || R1_RC=$?
@@ -161,7 +161,7 @@ source "$ROOT_DIR/lib/worker_registry.sh"
 worker_registry_init
 # Job contains two consecutive spaces inside the archive path. If the awk
 # field-rebuild bug regresses, recover() will emit a single space.
-printf '12345 ~/games/my  game.7z|lvol|games/g1~\n' > "$(_wr_path)"
+printf '12345 extract ~/games/my  game.7z|lvol|games/g1~\n' > "$(_wr_path)"
 worker_registry_recover
 SCRIPT
 )

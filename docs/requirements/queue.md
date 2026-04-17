@@ -20,9 +20,9 @@ third queue would drop in without code changes.
 queue_init <qdir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | qdir | absolute path | Must be writable by the current user. May or may not already exist. |
+| Position | Name | Type          | Constraint                                                          |
+| -------: | ---- | ------------- | ------------------------------------------------------------------- |
+|       $1 | qdir | absolute path | Must be writable by the current user. May or may not already exist. |
 
 **Returns**: `0` always.
 **Stdout**: silent.
@@ -85,10 +85,10 @@ queue_init "$DISPATCH_QUEUE_DIR"
 queue_push <qdir> <input_job>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | qdir | absolute path | Must already exist and be writable. |
-| $2 | input_job | string | Arbitrary job payload. Typically a `~src\|adapter\|dest~` line but the queue is format-agnostic. Terminating newline is added by `queue_push` itself. |
+| Position | Name      | Type          | Constraint                                                                                                                                            |
+| -------: | --------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+|       $1 | qdir      | absolute path | Must already exist and be writable.                                                                                                                   |
+|       $2 | input_job | string        | Arbitrary job payload. Typically a `~src\|adapter\|dest~` line but the queue is format-agnostic. Terminating newline is added by `queue_push` itself. |
 
 **Returns**: `0` always.
 **Stdout**: silent.
@@ -144,16 +144,16 @@ queue_push "$EXTRACT_QUEUE_DIR" "~/iso/game.7z|lvol|games/game~"
 queue_pop <qdir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | qdir | absolute path | Must exist. |
+| Position | Name | Type          | Constraint  |
+| -------: | ---- | ------------- | ----------- |
+|       $1 | qdir | absolute path | Must exist. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Success. The claimed job string is written to stdout (one line, trailing newline). |
-| `1` | Queue is empty. No `.job` files exist in `qdir` that this caller could claim. |
+|  rc | Meaning                                                                                                                                                                                                                                                        |
+| --: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0` | Success. The claimed job string is written to stdout (one line, trailing newline).                                                                                                                                                                             |
+| `1` | Queue is empty. No `.job` files exist in `qdir` that this caller could claim.                                                                                                                                                                                  |
 | `2` | Hard error. The caller won the atomic-mv race but the claimed file could not be read back (`cat` failed). This is specifically **not** "queue empty" — collapsing the two would cause a worker to exit its `while queue_pop` loop with jobs still outstanding. |
 
 **Stdout**: on rc=0, the job string followed by a newline.
@@ -215,10 +215,10 @@ queue_pop <qdir>
 
 **Error modes**
 
-| rc | Condition | Notes |
-|---:|---|---|
-| 1 | Empty queue | Normal loop terminator. |
-| 2 | Won the claim but read failed | Caller must log and handle; do not treat as empty. |
+| rc | Condition                     | Notes                                              |
+| --: | ----------------------------- | -------------------------------------------------- |
+|  1 | Empty queue                   | Normal loop terminator.                            |
+|  2 | Won the claim but read failed | Caller must log and handle; do not treat as empty. |
 
 **Example**
 

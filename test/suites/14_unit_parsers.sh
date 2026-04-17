@@ -220,46 +220,53 @@ U3_DIR="/tmp/lp_unit_loadjobs_$$"
 mkdir -p "$U3_DIR"
 
 # Case A — CRLF line endings: must parse identically to LF-only files.
-printf '~/abs/game.7z|lvol|dest~\r\n' > "$U3_DIR/crlf.jobs"
+printf '%s\r\n%s\r\n%s\r\n' '---JOBS---' '~/abs/game.7z|lvol|dest~' '---END---' > "$U3_DIR/crlf.jobs"
 
 # Case B — mixed blanks and full-line comments among valid jobs.
 cat > "$U3_DIR/mixed.jobs" <<'EOF'
+---JOBS---
 # header comment
 ~/abs/a.7z|lvol|d1~
 
 # another comment
 
 ~/abs/b.7z|ftp|/d/2~
+---END---
 EOF
 
-# Case C — every valid adapter name appears at least once.
+# Case C — every valid adapter name appears at least once. hdl requires
+# the 4-field form (format|title); all other adapters stay 3-field.
 cat > "$U3_DIR/all_adapters.jobs" <<'EOF'
+---JOBS---
 ~/abs/a.7z|ftp|/d1~
-~/abs/b.7z|hdl|/dev/hdd0~
+~/abs/b.7z|hdl|dvd|Game Title~
 ~/abs/c.7z|lvol|d3~
 ~/abs/d.7z|rclone|remote/d4~
 ~/abs/e.7z|rsync|d5~
+---END---
 EOF
 
 # Case D — dot basename. After `basename ... .7z` this stem is empty / a dot
 # and must be rejected (would otherwise collide with $EXTRACT_DIR root).
-printf '~/..7z|lvol|dest~\n' > "$U3_DIR/dot_basename.jobs"
+{ echo '---JOBS---'; echo '~/..7z|lvol|dest~'; echo '---END---'; } > "$U3_DIR/dot_basename.jobs"
 
 # Case E — only blanks and comments. load_jobs must NOT error, but should warn
 # and leave JOBS empty.
 cat > "$U3_DIR/empty_effective.jobs" <<'EOF'
+---JOBS---
 # nothing here
 
 # still nothing
+---END---
 EOF
 
 # Case F — shell-injection-ish characters in dest. The destination char class
 # is restrictive (no $ ; & ` etc), so a destination containing a dollar sign
 # must be rejected by the regex.
-printf '~/abs/game.7z|lvol|dest$INJECT~\n' > "$U3_DIR/injection.jobs"
+{ echo '---JOBS---'; echo '~/abs/game.7z|lvol|dest$INJECT~'; echo '---END---'; } > "$U3_DIR/injection.jobs"
 
 # Case G — relative iso path (no leading slash) must be rejected.
-printf '~abs/game.7z|lvol|dest~\n' > "$U3_DIR/relative.jobs"
+{ echo '---JOBS---'; echo '~abs/game.7z|lvol|dest~'; echo '---END---'; } > "$U3_DIR/relative.jobs"
 
 _u_run_subshell < <(
     export ROOT_DIR
@@ -332,6 +339,204 @@ _u_run_subshell < <(
 )
 
 rm -rf "$U3_DIR"
+
+# =============================================================================
+# U5 — load_jobs: block comments, header/footer, future columns
+# =============================================================================
+
+header "Test U5: load_jobs block comments, header/footer, future columns"
+
+U5_DIR="/tmp/lp_unit_loadjobs_u5_$$"
+mkdir -p "$U5_DIR"
+
+# Case I — block comment spanning 3 lines around a valid job: job inside block
+# must be skipped; job outside block is loaded.
+cat > "$U5_DIR/block_comment.jobs" <<'EOF'
+---JOBS---
+~/abs/a.7z|lvol|d1~
+/*
+  This job should be skipped:
+  ~/abs/skipped.7z|lvol|d2~
+*/
+~/abs/b.7z|lvol|d3~
+---END---
+EOF
+
+# Case J — unterminated /* swallows all subsequent lines.
+cat > "$U5_DIR/unterminated_block.jobs" <<'EOF'
+---JOBS---
+~/abs/before.7z|lvol|d1~
+/*
+  Everything below is swallowed because there is no closing */
+~/abs/swallowed.7z|lvol|d2~
+~/abs/also_swallowed.7z|lvol|d3~
+---END---
+EOF
+
+# Case K — post-footer job ignored.
+cat > "$U5_DIR/post_footer.jobs" <<'EOF'
+---JOBS---
+~/abs/inside.7z|lvol|d1~
+---END---
+~/abs/after_footer.7z|lvol|d2~
+EOF
+
+# Case L — no header: must FAIL (headers are required).
+cat > "$U5_DIR/no_header.jobs" <<'EOF'
+~/abs/a.7z|lvol|d1~
+~/abs/b.7z|lvol|d2~
+EOF
+
+# Case M — header but no footer: all jobs after header loaded (open body).
+cat > "$U5_DIR/no_footer.jobs" <<'EOF'
+---JOBS---
+~/abs/a.7z|lvol|d1~
+~/abs/b.7z|lvol|d2~
+EOF
+
+# Case N — valid job line before header: pre-header job ignored.
+cat > "$U5_DIR/pre_header.jobs" <<'EOF'
+~/abs/pre.7z|lvol|pre~
+---JOBS---
+~/abs/inside.7z|lvol|d1~
+---END---
+EOF
+
+# Case O — block comment inside header region (before ---JOBS---).
+cat > "$U5_DIR/block_in_preamble.jobs" <<'EOF'
+/*
+  This is a preamble comment — it must not interfere with header detection.
+*/
+---JOBS---
+~/abs/a.7z|lvol|d1~
+---END---
+EOF
+
+# Case P — 4th pipe-delimited field (future column): accepted by regex.
+cat > "$U5_DIR/future_column.jobs" <<'EOF'
+---JOBS---
+~/abs/game.7z|lvol|dest|highpriority~
+---END---
+EOF
+
+# Case Q — # comment inside /* */ block: entire block is skipped.
+cat > "$U5_DIR/hash_in_block.jobs" <<'EOF'
+---JOBS---
+~/abs/a.7z|lvol|d1~
+/*
+# This comment is inside the block and should NOT count as a line comment
+~/abs/skipped.7z|lvol|d2~
+*/
+~/abs/b.7z|lvol|d3~
+---END---
+EOF
+
+# Case R — /* appearing mid-line: must NOT start a block comment.
+# The line contains /* but does not start with it, so block comment mode
+# must NOT activate. load_jobs is strict: any non-matching line inside the
+# body causes a fatal error, so this tests that the file is rejected for
+# the invalid line, NOT that /* started a block comment.
+cat > "$U5_DIR/midline_block_open.jobs" <<'EOF'
+---JOBS---
+~/abs/a.7z|lvol|d1~
+some text /* not a block comment
+~/abs/b.7z|lvol|d2~
+---END---
+EOF
+
+_u_run_subshell < <(
+    export ROOT_DIR
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/jobs.sh"
+
+    # I: block comment skips enclosed job.
+    JOBS=()
+    if load_jobs "$U5_DIR/block_comment.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 2 ]]; then
+        echo "PASS block comment skipped enclosed job (2 jobs loaded)"
+    else
+        echo "FAIL block comment test expected 2 jobs, got ${#JOBS[@]}"
+    fi
+
+    # J: unterminated /* swallows all subsequent lines; only the job before
+    # the /* survives. ---END--- is also swallowed, but we still saw ---JOBS---
+    # so the header requirement is met.
+    JOBS=()
+    if load_jobs "$U5_DIR/unterminated_block.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 1 ]]; then
+        echo "PASS unterminated block comment swallowed rest of file (1 job loaded)"
+    else
+        echo "FAIL unterminated block comment test expected 1 job, got ${#JOBS[@]}"
+    fi
+
+    # K: post-footer job ignored.
+    JOBS=()
+    if load_jobs "$U5_DIR/post_footer.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 1 ]]; then
+        echo "PASS post-footer job ignored (1 job loaded)"
+    else
+        echo "FAIL post-footer test expected 1 job, got ${#JOBS[@]}"
+    fi
+
+    # L: no header → MUST fail (headers are required).
+    JOBS=()
+    if load_jobs "$U5_DIR/no_header.jobs" 2>/dev/null; then
+        echo "FAIL no-header file was accepted (expected rejection)"
+    else
+        echo "PASS no-header file correctly rejected"
+    fi
+
+    # M: header but no footer → open body, all jobs loaded.
+    JOBS=()
+    if load_jobs "$U5_DIR/no_footer.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 2 ]]; then
+        echo "PASS header-only (no footer) loaded 2 jobs"
+    else
+        echo "FAIL header-only test expected 2 jobs, got ${#JOBS[@]}"
+    fi
+
+    # N: pre-header job ignored.
+    JOBS=()
+    if load_jobs "$U5_DIR/pre_header.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 1 ]]; then
+        echo "PASS pre-header job ignored (1 job loaded)"
+    else
+        echo "FAIL pre-header test expected 1 job, got ${#JOBS[@]}"
+    fi
+
+    # O: block comment in preamble doesn't interfere with header.
+    JOBS=()
+    if load_jobs "$U5_DIR/block_in_preamble.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 1 ]]; then
+        echo "PASS block comment in preamble did not interfere (1 job loaded)"
+    else
+        echo "FAIL preamble block comment test expected 1 job, got ${#JOBS[@]}"
+    fi
+
+    # P: 4th pipe field (future column) accepted.
+    JOBS=()
+    if load_jobs "$U5_DIR/future_column.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 1 ]]; then
+        echo "PASS future column (4th pipe field) accepted"
+    else
+        echo "FAIL future column test expected 1 job, got ${#JOBS[@]}"
+    fi
+
+    # Q: # comment inside /* */ block — entire block skipped.
+    JOBS=()
+    if load_jobs "$U5_DIR/hash_in_block.jobs" 2>/dev/null && [[ ${#JOBS[@]} -eq 2 ]]; then
+        echo "PASS # inside block comment did not escape the block (2 jobs loaded)"
+    else
+        echo "FAIL hash-in-block test expected 2 jobs, got ${#JOBS[@]}"
+    fi
+
+    # R: /* mid-line does NOT start a block comment; the invalid line
+    # causes load_jobs to reject the file entirely (strict parsing).
+    # If /* had started a block comment, the subsequent valid job line
+    # would have been swallowed and load_jobs might have returned 0
+    # with only 1 job — so a failure here proves block comment activation.
+    JOBS=()
+    if load_jobs "$U5_DIR/midline_block_open.jobs" 2>/dev/null; then
+        echo "FAIL mid-line /* was not treated as an invalid line (expected rejection)"
+    else
+        echo "PASS mid-line /* correctly treated as invalid line (file rejected)"
+    fi
+)
+
+rm -rf "$U5_DIR"
 
 # =============================================================================
 # U4 — config.sh .env + numeric validation
@@ -485,3 +690,68 @@ else
 fi
 
 rm -rf "$U4_ROOT"
+
+# =============================================================================
+# U6 — parse_hdl_destination: hdl adapter's 2-field (post-parse_job_line)
+#      destination spec parser. Post-refactor, a hdl job line is
+#      ~<iso>|hdl|<format>|<title>~, so parse_hdl_destination sees only
+#      "<format>|<title>". The HDD device and install target are env vars.
+# =============================================================================
+
+header "Test U6: parse_hdl_destination (lib/job_format.sh)"
+
+_u_run_subshell < <(
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/job_format.sh"
+
+    # Happy-path matrix: both valid format literals, with a title that
+    # exercises the permitted trailing-field charset (spaces, parens).
+    for fmt in cd dvd; do
+        combined="$fmt|My Game (USA)"
+        if out=$(parse_hdl_destination "$combined") && [[ -n "$out" ]]; then
+            { read -r f; read -r t; } <<< "$out"
+            if [[ "$f" == "$fmt" && "$t" == "My Game (USA)" ]]; then
+                echo "PASS happy path format=$fmt parses cleanly"
+            else
+                echo "FAIL happy path $fmt mangled: f='$f' t='$t'"
+            fi
+        else
+            echo "FAIL happy path $fmt rejected (out='$out')"
+        fi
+    done
+
+    # Missing title.
+    if parse_hdl_destination "cd" >/dev/null 2>&1; then
+        echo "FAIL missing title accepted"
+    else
+        echo "PASS missing title rejected"
+    fi
+
+    # Empty title.
+    if parse_hdl_destination "cd|" >/dev/null 2>&1; then
+        echo "FAIL empty title accepted"
+    else
+        echo "PASS empty title rejected"
+    fi
+
+    # Missing format.
+    if parse_hdl_destination "|Title" >/dev/null 2>&1; then
+        echo "FAIL empty format accepted"
+    else
+        echo "PASS empty format rejected"
+    fi
+
+    # Bogus format literal.
+    if parse_hdl_destination "bluray|Title" >/dev/null 2>&1; then
+        echo "FAIL bogus format 'bluray' accepted"
+    else
+        echo "PASS bogus format rejected"
+    fi
+
+    # Extra trailing field beyond the 2 expected.
+    if parse_hdl_destination "cd|Title|extra" >/dev/null 2>&1; then
+        echo "FAIL extra trailing field accepted"
+    else
+        echo "PASS extra trailing field rejected"
+    fi
+)

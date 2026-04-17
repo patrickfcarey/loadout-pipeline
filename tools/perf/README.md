@@ -17,13 +17,13 @@ in here without changing the shipped artifact one byte.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `perf_recommender.sh` | Pure function `perf_recommend_workers` — metrics in, `(unzip, dispatch)` out. No I/O, no state. Self-tested via `--self-test`. |
-| `perf_metrics.sh`     | Stateful samplers for `/proc/stat`, `/proc/diskstats`, the dispatch queue, and the "space reservation" log signal. Self-tested via `--self-test`. |
-| `perf_harness.sh`     | Sweep driver. Runs the real pipeline for each combo, writes `results.csv`, calls `perf_report.sh`. |
-| `perf_report.sh`      | Aggregator. CSV in, `report.md` + `report.json` out. Computes the Pareto front and cross-checks the recommender on the winner. |
-| `fixtures/archive_set_smoke.txt` | Three-archive smoke fixture list, one path per line (relative to repo root). |
+| File                             | Purpose                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `perf_recommender.sh`            | Pure function `perf_recommend_workers` — metrics in, `(unzip, dispatch)` out. No I/O, no state. Self-tested via `--self-test`.                    |
+| `perf_metrics.sh`                | Stateful samplers for `/proc/stat`, `/proc/diskstats`, the dispatch queue, and the "space reservation" log signal. Self-tested via `--self-test`. |
+| `perf_harness.sh`                | Sweep driver. Runs the real pipeline for each combo, writes `results.csv`, calls `perf_report.sh`.                                                |
+| `perf_report.sh`                 | Aggregator. CSV in, `report.md` + `report.json` out. Computes the Pareto front and cross-checks the recommender on the winner.                    |
+| `fixtures/archive_set_smoke.txt` | Three-archive smoke fixture list, one path per line (relative to repo root).                                                                      |
 
 ## Quick start
 

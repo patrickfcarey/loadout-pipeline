@@ -6,14 +6,25 @@
 # and PS2 titles go to an HDD via hdl_dump.
 #
 # format: ~iso_path|adapter|destination~
+#
+# hdl jobs carry one extra field after the adapter:
+#   ~iso|hdl|<cd|dvd>|<title>~
+# <cd|dvd> selects the hdl_dump inject_cd / inject_dvd command;
+# <title>  is the PS2 game title written into the HDLoader game table.
+#
+# The hdl_dump install target (hdd0:, hdd1:, …) is operator-wide and set
+# via the env var HDL_INSTALL_TARGET. Set HDL_HOST_DEVICE (e.g. sri:) to
+# enable a one-time writability probe at pipeline startup.
 
+---JOBS---
 # PS1 → local volume
 ~/isos/ps1/crash_bandicoot.7z|lvol|ps1/crash_bandicoot~
 ~/isos/ps1/spyro.7z|lvol|ps1/spyro~
 
 # PS2 → hdl_dump (PlayStation 2 internal HDD)
-~/isos/ps2/shadow_of_the_colossus.7z|hdl|/dev/sdb~
-~/isos/ps2/ico.7z|hdl|/dev/sdb~
+~/isos/ps2/shadow_of_the_colossus.7z|hdl|dvd|Shadow of the Colossus~
+~/isos/ps2/ico.7z|hdl|dvd|ICO~
 
 # PC → cloud storage via rclone
 ~/isos/pc/quake.7z|rclone|pc/quake~
+---END---

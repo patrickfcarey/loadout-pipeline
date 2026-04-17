@@ -39,16 +39,16 @@ Exercised indirectly by suite 20 RP2/RP3/RP4.
 _resume_plan_member_is_safe <member>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | member | string | Archive-member filename as emitted by `7z l -slt` Path line. |
+| Position | Name   | Type   | Constraint                                                   |
+| -------: | ------ | ------ | ------------------------------------------------------------ |
+|       $1 | member | string | Archive-member filename as emitted by `7z l -slt` Path line. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
+|  rc | Meaning                                                                          |
+| --: | -------------------------------------------------------------------------------- |
 | `0` | Safe — relative path that cannot escape the destination directory when appended. |
-| `1` | Unsafe — absolute, contains `..`, empty, or contains newline. |
+| `1` | Unsafe — absolute, contains `..`, empty, or contains newline.                    |
 
 **Stdout**: silent.
 **Stderr**: silent.
@@ -92,15 +92,15 @@ _resume_plan_member_is_safe "game/game.iso"  # returns 0
 _resume_plan_dest_for_job <dest>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | dest | string | Adapter destination field from the job line. |
+| Position | Name | Type   | Constraint                                   |
+| -------: | ---- | ------ | -------------------------------------------- |
+|       $1 | dest | string | Adapter destination field from the job line. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Prints the canonical absolute destination path to stdout. |
+|  rc | Meaning                                                                            |
+| --: | ---------------------------------------------------------------------------------- |
+| `0` | Prints the canonical absolute destination path to stdout.                          |
 | `1` | Containment escape, `realpath` unavailable, or `realpath` failed. Nothing printed. |
 
 **Stdout**: on rc=0, the canonical absolute path (one line, trailing newline).
@@ -164,9 +164,9 @@ by `test/suites/20_unit_adapters_resume.sh` RP4 (cache hit + miss paths).
 _resume_plan_load_dest_cache <dir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | dir | absolute path | Canonical absolute destination directory. |
+| Position | Name | Type          | Constraint                                |
+| -------: | ---- | ------------- | ----------------------------------------- |
+|       $1 | dir  | absolute path | Canonical absolute destination directory. |
 
 **Returns**: `0` always.
 **Stdout**: silent.
@@ -229,15 +229,15 @@ RP3 (strip-list filtering)
 _resume_plan_archive_members <archive>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | archive | absolute path | `.7z` archive on disk. |
+| Position | Name    | Type          | Constraint             |
+| -------: | ------- | ------------- | ---------------------- |
+|       $1 | archive | absolute path | `.7z` archive on disk. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Members printed to stdout (newline-delimited, strip-filtered, safe). |
+|  rc | Meaning                                                                                                |
+| --: | ------------------------------------------------------------------------------------------------------ |
+| `0` | Members printed to stdout (newline-delimited, strip-filtered, safe).                                   |
 | `1` | 7z failed, archive unreadable, empty listing, or an unsafe member was found. Caller must keep the job. |
 
 **Stdout**: on rc=0, newline-delimited list of safe, non-stripped
@@ -311,16 +311,16 @@ members="$(_resume_plan_archive_members "$archive")" || {
 _resume_plan_job_is_satisfied <archive> <local_root>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | archive | absolute path | `.7z` archive on disk. |
-| $2 | local_root | absolute path | Canonical destination directory (output of `_resume_plan_dest_for_job`). |
+| Position | Name       | Type          | Constraint                                                               |
+| -------: | ---------- | ------------- | ------------------------------------------------------------------------ |
+|       $1 | archive    | absolute path | `.7z` archive on disk.                                                   |
+|       $2 | local_root | absolute path | Canonical destination directory (output of `_resume_plan_dest_for_job`). |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Every strip-filtered member present at `$local_root`. Caller should drop the job. |
+|  rc | Meaning                                                                              |
+| --: | ------------------------------------------------------------------------------------ |
+| `0` | Every strip-filtered member present at `$local_root`. Caller should drop the job.    |
 | `1` | At least one member missing, or the planner cannot decide. Caller must keep the job. |
 
 **Stdout**: silent.

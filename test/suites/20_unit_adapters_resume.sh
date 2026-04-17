@@ -7,7 +7,8 @@
 # unrelated pipeline step broke" rather than pointing at the specific
 # helper at fault.
 #
-#   A1  ALLOW_STUB_ADAPTERS=0 → ftp/hdl_dump/rclone all refuse
+#   A1  ALLOW_STUB_ADAPTERS=0 regression guard: no adapter is a stub;
+#        ftp/rclone refuse when their required env vars are missing
 #   A2  lvol.sh refuses when LVOL_MOUNT_POINT does not exist
 #   A3  lvol.sh refuses when dest escapes LVOL_MOUNT_POINT
 #   RP1 _resume_plan_dest_for_job containment (accept + refuse)
@@ -36,31 +37,50 @@ _u_run_subshell() {
 }
 
 # =============================================================================
-# A1 — every stub adapter refuses when ALLOW_STUB_ADAPTERS is not 1
+# A1 — regression guard: no adapter in adapters/ is a stub;
+#      real adapters refuse when their required env vars are missing
 # =============================================================================
 
-header "Test A1: stub adapters refuse when ALLOW_STUB_ADAPTERS=0"
+header "Test A1: no adapter is a stub; missing-env refusal for ftp/rclone"
 
 A1_SRC="/tmp/lp_unit_a1_src_$$"
 mkdir -p "$A1_SRC"
 
-for adapter in ftp hdl_dump rclone; do
+# Every adapter under adapters/ must be implemented — no "STATUS: STUB"
+# banner, no hard "adapter is a stub" refusal. If a new stub slips in, its
+# error string will trigger this guard.
+A1_STUB_FOUND=0
+for adapter_sh in "$ROOT_DIR"/adapters/*.sh; do
+    if grep -qi 'STATUS:[[:space:]]*STUB' "$adapter_sh"; then
+        fail "stub adapter present: $(basename "$adapter_sh")"
+        A1_STUB_FOUND=1
+    fi
+done
+if (( ! A1_STUB_FOUND )); then
+    pass "no stub adapters found under adapters/"
+fi
+
+# ftp and rclone are real adapters — they refuse with a missing-env-var
+# error when their required config is not set and ALLOW_STUB_ADAPTERS is off.
+for adapter_spec in "ftp:FTP_HOST" "rclone:RCLONE_REMOTE"; do
+    adapter="${adapter_spec%%:*}"
+    envvar="${adapter_spec##*:}"
     A1_RC=0
     A1_LOG=$(mktemp)
-    env -u ALLOW_STUB_ADAPTERS \
+    env -u ALLOW_STUB_ADAPTERS -u "$envvar" \
         bash "$ROOT_DIR/adapters/${adapter}.sh" \
         "$A1_SRC" "some/dest" >"$A1_LOG" 2>&1 || A1_RC=$?
 
     if (( A1_RC == 1 )); then
-        pass "${adapter}: refuses with rc=1"
+        pass "${adapter}: refuses with rc=1 when ${envvar} unset"
     else
         fail "${adapter}: expected rc=1, got $A1_RC"
         sed 's/^/      /' "$A1_LOG"
     fi
-    if grep -q "stub" "$A1_LOG"; then
-        pass "${adapter}: log mentions 'stub'"
+    if grep -q "${envvar}" "$A1_LOG"; then
+        pass "${adapter}: log mentions missing ${envvar}"
     else
-        fail "${adapter}: log missing 'stub' message"
+        fail "${adapter}: log missing ${envvar} error message"
         sed 's/^/      /' "$A1_LOG"
     fi
 

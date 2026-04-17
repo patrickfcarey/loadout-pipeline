@@ -179,9 +179,9 @@ space_init
 _space_dev <path>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | path | directory path | Need not exist yet. |
+| Position | Name | Type           | Constraint          |
+| -------: | ---- | -------------- | ------------------- |
+|       $1 | path | directory path | Need not exist yet. |
 
 **Returns**: `0` always.
 **Stdout**: numeric device ID from `stat -c %d`, or `0` on error.
@@ -232,9 +232,9 @@ if [[ "$cdev" == "$edev" ]]; then ...; fi
 _space_avail_bytes <path>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | path | directory path | Need not exist yet. |
+| Position | Name | Type           | Constraint          |
+| -------: | ---- | -------------- | ------------------- |
+|       $1 | path | directory path | Need not exist yet. |
 
 **Returns**: `0` always.
 **Stdout**: a decimal byte count (from `df --output=avail -B1 | tail -n1 | tr -d ' '`),
@@ -292,10 +292,10 @@ fi
 _space_reserved_on_dev <dev> <mode>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | dev | integer | Device ID from `stat -c %d`. |
-| $2 | mode | keyword | One of `copy`, `extract`, `both`. |
+| Position | Name | Type    | Constraint                        |
+| -------: | ---- | ------- | --------------------------------- |
+|       $1 | dev  | integer | Device ID from `stat -c %d`.      |
+|       $2 | mode | keyword | One of `copy`, `extract`, `both`. |
 
 **Returns**: `0` always.
 **Stdout**: a decimal byte count — `0` if the ledger is missing or
@@ -345,9 +345,9 @@ total_reserved="$(_space_reserved_on_dev "$cdev" both)"
 _space_apply_overhead <bytes>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | bytes | integer | Non-negative. |
+| Position | Name  | Type    | Constraint    |
+| -------: | ----- | ------- | ------------- |
+|       $1 | bytes | integer | Non-negative. |
 
 **Returns**: `0` always.
 **Stdout**: `$(( bytes * (100 + SPACE_OVERHEAD_PCT) / 100 ))`.
@@ -454,19 +454,19 @@ _space_ledger_gc_phantoms
 space_reserve <id> <copy_dir> <copy_bytes> <extract_dir> <extract_bytes>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | id | string | Unique reservation key; `space_release` uses this to find the row later. Convention: `extract.$BASHPID.<nonce>`. |
-| $2 | copy_dir | directory path | Scratch directory where the copied archive will land. |
-| $3 | copy_bytes | integer | Archive size in bytes (from `stat -c %s`). |
-| $4 | extract_dir | directory path | Directory where 7z will write extracted members. |
-| $5 | extract_bytes | integer | Sum of uncompressed member sizes (from `7z l`). |
+| Position | Name          | Type           | Constraint                                                                                                       |
+| -------: | ------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
+|       $1 | id            | string         | Unique reservation key; `space_release` uses this to find the row later. Convention: `extract.$BASHPID.<nonce>`. |
+|       $2 | copy_dir      | directory path | Scratch directory where the copied archive will land.                                                            |
+|       $3 | copy_bytes    | integer        | Archive size in bytes (from `stat -c %s`).                                                                       |
+|       $4 | extract_dir   | directory path | Directory where 7z will write extracted members.                                                                 |
+|       $5 | extract_bytes | integer        | Sum of uncompressed member sizes (from `7z l`).                                                                  |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Reservation committed. Caller may proceed with copy + extract. |
+|  rc | Meaning                                                                                                                  |
+| --: | ------------------------------------------------------------------------------------------------------------------------ |
+| `0` | Reservation committed. Caller may proceed with copy + extract.                                                           |
 | `1` | Does not fit right now. Caller should sleep and retry, OR fast-fail if `space_ledger_empty` says no siblings hold space. |
 
 **Stdout**: silent.
@@ -532,10 +532,10 @@ space_reserve <id> <copy_dir> <copy_bytes> <extract_dir> <extract_bytes>
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | Pooled or independent fit check fails | silent |
-| 1 | `df` returned non-numeric | `space_reserve: df returned non-numeric ...` via `log_warn` |
+| rc | Condition                             | Characteristic stderr                                       |
+| --: | ------------------------------------- | ----------------------------------------------------------- |
+|  1 | Pooled or independent fit check fails | silent                                                      |
+|  1 | `df` returned non-numeric             | `space_reserve: df returned non-numeric ...` via `log_warn` |
 
 **Exemptions**
 
@@ -568,9 +568,9 @@ fi
 space_release <id>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | id | string | Same key that was passed to `space_reserve`. |
+| Position | Name | Type   | Constraint                                   |
+| -------: | ---- | ------ | -------------------------------------------- |
+|       $1 | id   | string | Same key that was passed to `space_reserve`. |
 
 **Returns**: `0` always.
 **Stdout**: silent.
@@ -633,10 +633,10 @@ Takes no arguments.
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
+|  rc | Meaning                                                                                                  |
+| --: | -------------------------------------------------------------------------------------------------------- |
 | `0` | Ledger is effectively empty — missing, zero-size, or every row is a phantom (owner PID no longer alive). |
-| `1` | At least one row has a live owner PID. |
+| `1` | At least one row has a live owner PID.                                                                   |
 
 **Stdout**: silent.
 **Stderr**: silent.

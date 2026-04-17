@@ -23,9 +23,9 @@ channel.
 bin/loadout-pipeline.sh [<jobs_file>]
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | jobs_file | path | Optional. Either a regular file in `~src\|adapter\|dest~` format, or a directory containing one or more `*.jobs` files. Defaults to `$ROOT_DIR/examples/example.jobs` when absent. |
+| Position | Name      | Type | Constraint                                                                                                                                                                         |
+| -------: | --------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|       $1 | jobs_file | path | Optional. Either a regular file in `~src\|adapter\|dest~` format, or a directory containing one or more `*.jobs` files. Defaults to `$ROOT_DIR/examples/example.jobs` when absent. |
 
 **Returns**: `0` on clean completion of every job; non-zero on any
 fatal startup failure. Per-job failures are logged but do not
@@ -70,12 +70,12 @@ script from `BASH_SOURCE[0]`).
 
 **Error modes**
 
-| rc | Condition | Where |
-|---:|---|---|
-| 1 | Missing prereq binary | `check_prerequisites` |
-| 1 | Unsafe working directory (symlink, wrong owner) | `_assert_pipeline_dir_safe` |
-| 2 | Invalid numeric config (e.g. `MAX_UNZIP=0`) | `lib/config.sh` validator |
-| 2 | `DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS` | `lib/config.sh` validator |
+| rc | Condition                                         | Where                       |
+| --: | ------------------------------------------------- | --------------------------- |
+|  1 | Missing prereq binary                             | `check_prerequisites`       |
+|  1 | Unsafe working directory (symlink, wrong owner)   | `_assert_pipeline_dir_safe` |
+|  2 | Invalid numeric config (e.g. `MAX_UNZIP=0`)       | `lib/config.sh` validator   |
+|  2 | `DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS` | `lib/config.sh` validator   |
 
 **Example**
 
@@ -161,12 +161,12 @@ to be set in the caller's environment.
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 2 | `MAX_UNZIP` / `MAX_DISPATCH` / `MAX_RECOVERY_ATTEMPTS` / `DISPATCH_POLL_*` not a positive integer | `[config] ERROR: <VAR> must be a positive integer, got '<val>'` |
-| 2 | `SPACE_OVERHEAD_PCT` not a non-negative integer | `[config] ERROR: SPACE_OVERHEAD_PCT must be a non-negative integer, got '<val>'` |
-| 2 | `SPACE_RETRY_BACKOFF_*` not a non-negative number | `[config] ERROR: <VAR> must be a non-negative number, got '<val>'` |
-| 2 | `DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS` | `[config] ERROR: DISPATCH_POLL_INITIAL_MS (<i>) must not exceed DISPATCH_POLL_MAX_MS (<m>)` |
+| rc | Condition                                                                                         | Characteristic stderr                                                                       |
+| --: | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+|  2 | `MAX_UNZIP` / `MAX_DISPATCH` / `MAX_RECOVERY_ATTEMPTS` / `DISPATCH_POLL_*` not a positive integer | `[config] ERROR: <VAR> must be a positive integer, got '<val>'`                             |
+|  2 | `SPACE_OVERHEAD_PCT` not a non-negative integer                                                   | `[config] ERROR: SPACE_OVERHEAD_PCT must be a non-negative integer, got '<val>'`            |
+|  2 | `SPACE_RETRY_BACKOFF_*` not a non-negative number                                                 | `[config] ERROR: <VAR> must be a non-negative number, got '<val>'`                          |
+|  2 | `DISPATCH_POLL_INITIAL_MS > DISPATCH_POLL_MAX_MS`                                                 | `[config] ERROR: DISPATCH_POLL_INITIAL_MS (<i>) must not exceed DISPATCH_POLL_MAX_MS (<m>)` |
 
 **Example**
 
@@ -245,9 +245,9 @@ my_helper() {
 log_debug <message_tokens...>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $@ | message_tokens | string | Free-form text; concatenated with single spaces. |
+| Position | Name           | Type   | Constraint                                       |
+| -------: | -------------- | ------ | ------------------------------------------------ |
+|       $@ | message_tokens | string | Free-form text; concatenated with single spaces. |
 
 **Returns**: `0` always
 **Stdout**: silent
@@ -288,9 +288,9 @@ space_reserve() {
 log_trace <message_tokens...>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $@ | message_tokens | string | Free-form text. |
+| Position | Name           | Type   | Constraint      |
+| -------: | -------------- | ------ | --------------- |
+|       $@ | message_tokens | string | Free-form text. |
 
 **Returns**: `0` always
 **Stdout**: silent
@@ -335,9 +335,9 @@ log_trace "starting extract for $job_path"
 log_info <message_tokens...>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $@ | message_tokens | string | Free-form text. |
+| Position | Name           | Type   | Constraint      |
+| -------: | -------------- | ------ | --------------- |
+|       $@ | message_tokens | string | Free-form text. |
 
 **Returns**: `0` always
 **Stdout**: `[pipeline] <message>` — always visible regardless of
@@ -377,9 +377,9 @@ log_info "Loading jobs from $JOBS_FILE..."
 log_warn <message_tokens...>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $@ | message_tokens | string | Free-form text. |
+| Position | Name           | Type   | Constraint      |
+| -------: | -------------- | ------ | --------------- |
+|       $@ | message_tokens | string | Free-form text. |
 
 **Returns**: `0` always
 **Stdout**: silent.
@@ -417,9 +417,9 @@ log_warn "archive has a wrapper dir; flattening: $wrapper_name"
 log_error <message_tokens...>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $@ | message_tokens | string | Free-form text. |
+| Position | Name           | Type   | Constraint      |
+| -------: | -------------- | ------ | --------------- |
+|       $@ | message_tokens | string | Free-form text. |
 
 **Returns**: `0` always (does not itself exit).
 **Stdout**: silent.
@@ -508,10 +508,10 @@ table and a pointer to `README.md`'s "Required packages" section.
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | `bash < 4.0` | `loadout-pipeline requires bash >= 4.0 (found ...)` |
-| 1 | Any required binary missing | `loadout-pipeline prerequisite check FAILED` followed by a `- <cmd>` list |
+| rc | Condition                   | Characteristic stderr                                                     |
+| --: | --------------------------- | ------------------------------------------------------------------------- |
+|  1 | `bash < 4.0`                | `loadout-pipeline requires bash >= 4.0 (found ...)`                       |
+|  1 | Any required binary missing | `loadout-pipeline prerequisite check FAILED` followed by a `- <cmd>` list |
 
 **Example**
 
@@ -536,9 +536,9 @@ check_prerequisites   # exits 1 on failure; returns 0 on success
 _assert_pipeline_dir_safe <directory_path>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | directory_path | absolute path | Must not be empty. |
+| Position | Name           | Type          | Constraint         |
+| -------: | -------------- | ------------- | ------------------ |
+|       $1 | directory_path | absolute path | Must not be empty. |
 
 **Returns**: `0` on success. Exits `1` on any violation — does not
 return non-zero.
@@ -583,10 +583,10 @@ violation and suggesting a remediation.
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | Path is a symlink | `pipeline directory must not be a symlink: <path>` |
-| 1 | Existing dir owned by a different UID | `pipeline directory is not owned by the current user (uid=<n>): <path>` |
+| rc | Condition                             | Characteristic stderr                                                   |
+| --: | ------------------------------------- | ----------------------------------------------------------------------- |
+|  1 | Path is a symlink                     | `pipeline directory must not be a symlink: <path>`                      |
+|  1 | Existing dir owned by a different UID | `pipeline directory is not owned by the current user (uid=<n>): <path>` |
 
 **Example**
 

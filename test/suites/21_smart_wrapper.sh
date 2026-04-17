@@ -204,7 +204,7 @@ _u_run_subshell < <(
     mkdir -p "$_tmp"
 
     # Single adapter
-    printf '~%s~\n' '/path/game.7z|lvol|games/g1' > "$_tmp/single.jobs"
+    { echo '---JOBS---'; echo '~/path/game.7z|lvol|games/g1~'; echo '---END---'; } > "$_tmp/single.jobs"
     JOBS_PATH="$_tmp/single.jobs"
     _detect_adapters
     if [[ -v DETECTED[lvol] ]]; then
@@ -220,10 +220,12 @@ _u_run_subshell < <(
 
     # Multiple adapters
     cat > "$_tmp/multi.jobs" <<'JOBS'
+---JOBS---
 ~/path/game1.7z|lvol|games/g1~
 ~/path/game2.7z|ftp|/remote/g2~
 ~/path/game3.7z|rclone|bucket/g3~
 ~/path/game4.7z|lvol|games/g4~
+---END---
 JOBS
     JOBS_PATH="$_tmp/multi.jobs"
     _detect_adapters
@@ -240,9 +242,11 @@ JOBS
 
     # Comments-only file
     cat > "$_tmp/comments.jobs" <<'JOBS'
+---JOBS---
 # just a comment
 # another comment
 
+---END---
 JOBS
     JOBS_PATH="$_tmp/comments.jobs"
     _detect_adapters
@@ -254,8 +258,8 @@ JOBS
 
     # Directory mode: multiple .jobs files
     mkdir -p "$_tmp/jobsdir"
-    printf '~%s~\n' '/path/a.7z|hdl|/dev/hdd0' > "$_tmp/jobsdir/a.jobs"
-    printf '~%s~\n' '/path/b.7z|rsync|/dest/b'  > "$_tmp/jobsdir/b.jobs"
+    { echo '---JOBS---'; echo '~/path/a.7z|hdl|dvd|Game A~'; echo '---END---'; } > "$_tmp/jobsdir/a.jobs"
+    { echo '---JOBS---'; echo '~/path/b.7z|rsync|/dest/b~'; echo '---END---'; } > "$_tmp/jobsdir/b.jobs"
     JOBS_PATH="$_tmp/jobsdir"
     _detect_adapters
     if [[ -v DETECTED[hdl] && -v DETECTED[rsync] ]]; then
@@ -265,7 +269,7 @@ JOBS
     fi
 
     # Unknown adapter
-    printf '~%s~\n' '/path/x.7z|unknown_adapter|dest' > "$_tmp/unknown.jobs"
+    { echo '---JOBS---'; echo '~/path/x.7z|unknown_adapter|dest~'; echo '---END---'; } > "$_tmp/unknown.jobs"
     JOBS_PATH="$_tmp/unknown.jobs"
     _detect_adapters
     if [[ -v DETECTED[unknown_adapter] ]]; then
@@ -874,7 +878,7 @@ _u_run_subshell < <(
         # ── jobs: valid file → ok ──
         local _tmp="/tmp/lp_smart_status_$$"
         mkdir -p "$_tmp"
-        printf '~%s~\n' '/path/g.7z|lvol|g' > "$_tmp/test.jobs"
+        { echo '---JOBS---'; echo '~/path/g.7z|lvol|g~'; echo '---END---'; } > "$_tmp/test.jobs"
         JOBS_PATH="$_tmp/test.jobs"
         if [[ "$(_action_status jobs)" == "ok" ]]; then
             echo "PASS jobs: ok when JOBS_PATH is a valid file"
@@ -915,26 +919,27 @@ _u_run_subshell < <(
             echo "FAIL cfg_lvol: expected ok"
         fi
 
-        # ── validate: locked when workers not configured ──
-        _STATUS_WORKERS="pending"
-        _STATUS_SCRATCH="ok"
-        if [[ "$(_action_status validate)" == "locked" ]]; then
-            echo "PASS validate: locked when workers pending"
+        # ── validate: accessible with defaults (workers/adapters skip) ──
+        _STATUS_WORKERS="skip"
+        _STATUS_SCRATCH="skip"
+        _STATUS_CFG_LVOL="skip"
+        _VALIDATE_STATUS="pending"
+        if [[ "$(_action_status validate)" == "pending" ]]; then
+            echo "PASS validate: accessible when optional items are skip"
         else
-            echo "FAIL validate: expected locked, got $(_action_status validate)"
+            echo "FAIL validate: expected pending, got $(_action_status validate)"
         fi
 
-        # ── validate: locked when adapter config missing ──
-        _STATUS_WORKERS="ok"
-        _STATUS_CFG_LVOL="pending"
+        # ── validate: locked when no jobs file ──
+        JOBS_PATH=""
         if [[ "$(_action_status validate)" == "locked" ]]; then
-            echo "PASS validate: locked when adapter config pending"
+            echo "PASS validate: locked when no jobs file"
         else
             echo "FAIL validate: expected locked, got $(_action_status validate)"
         fi
 
         # ── validate: unlocked → returns _VALIDATE_STATUS ──
-        _STATUS_CFG_LVOL="ok"
+        JOBS_PATH="$_u21m_jobs"
         _VALIDATE_STATUS="pending"
         if [[ "$(_action_status validate)" == "pending" ]]; then
             echo "PASS validate: returns pending when all prereqs met"

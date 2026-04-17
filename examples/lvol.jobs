@@ -8,7 +8,9 @@
 # The destination field is a subdirectory path under LVOL_MOUNT_POINT.
 # format: ~iso_path|adapter|destination~
 
+---JOBS---
 ~/isos/ps1/crash_bandicoot.7z|lvol|ps1/crash_bandicoot~
 ~/isos/ps1/spyro.7z|lvol|ps1/spyro~
 ~/isos/ps2/shadow_of_the_colossus.7z|lvol|ps2/shadow_of_the_colossus~
 ~/isos/ps2/ico.7z|lvol|ps2/ico~
+---END---

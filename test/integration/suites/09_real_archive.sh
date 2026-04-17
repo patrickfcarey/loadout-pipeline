@@ -2,13 +2,14 @@
 # test/integration/suites/09_real_archive.sh
 #
 # Real game ISO end-to-end, as in the unit test 21, but driving the
-# integration substrate: real tmpfs extract + real vfat SD + real strip
-# list dispatch guard. The existing 196 MB archive is expected to be
-# baked into the container image at $INT_FIXTURES/Ultimate Board Game
-# Collection (USA).7z (the Dockerfile copies the whole repo in, so the
-# unit-suite fixture comes along for the ride).
+# integration substrate: real tmpfs extract + real strip-list dispatch
+# guard. NOTE: the SD destination is redirected to a plain directory on
+# the container rootfs because the 64 MB vfat loopback is too small for
+# a 196 MB PS2 game. The lvol adapter code path is exercised (rsync,
+# path validation, containment check), but real vfat semantics (case
+# insensitivity, 8.3 fallback, 2s mtime granularity) are NOT tested here.
 
-header "Int Test 21: real game ISO on integration substrate"
+header "Int Test 21: real game ISO — extract + strip-list (SD on plain dir, not vfat)"
 
 REAL_ARCHIVE=""
 # Prefer the integration fixture dir, fall back to the unit-suite fixture.
@@ -44,7 +45,7 @@ else
     T21_SD="$T21_DIR/sd"
     mkdir -p "$T21_SD"
 
-    printf '~%s|lvol|t21/game~\n' "$REAL_ARCHIVE" > "$T21_JOBS"
+    { echo '---JOBS---'; echo "~$REAL_ARCHIVE|lvol|t21/game~"; echo '---END---'; } > "$T21_JOBS"
 
     set +e
     EXTRACT_DIR="$T21_EXTRACT" QUEUE_DIR="$INT_QUEUE/t21" \

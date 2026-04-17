@@ -101,17 +101,17 @@ _spool_sweep_and_claim
 _spool_guarded_rm_rf <path>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | path | absolute path | Should point at a subdirectory directly under `$COPY_DIR` whose basename is a numeric PID. |
+| Position | Name | Type          | Constraint                                                                                 |
+| -------: | ---- | ------------- | ------------------------------------------------------------------------------------------ |
+|       $1 | path | absolute path | Should point at a subdirectory directly under `$COPY_DIR` whose basename is a numeric PID. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Removed the path, or the path was `""` / `/` / `.` and refused (the refusal itself is logged). |
-| `1` | The path failed the guard check (wrong parent or non-numeric basename). |
-| non-zero | The inner `rm -rf` failed. |
+|       rc | Meaning                                                                                        |
+| -------: | ---------------------------------------------------------------------------------------------- |
+|      `0` | Removed the path, or the path was `""` / `/` / `.` and refused (the refusal itself is logged). |
+|      `1` | The path failed the guard check (wrong parent or non-numeric basename).                        |
+| non-zero | The inner `rm -rf` failed.                                                                     |
 
 **Stdout**: silent.
 **Stderr**: On refusal, one or two `log_error` lines describing the
@@ -144,10 +144,10 @@ refuse-on-empty branch fired, in which case nothing changed).
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | `path` empty/`/`/`.` | `spool guard: refusing to rm '<path>'` |
-| 1 | Parent not `$COPY_DIR` or non-numeric basename | `spool guard: refusing rm of '<path>' (parent='<p>' name='<n>' not under COPY_DIR/<pid>)` |
+| rc | Condition                                      | Characteristic stderr                                                                     |
+| --: | ---------------------------------------------- | ----------------------------------------------------------------------------------------- |
+|  1 | `path` empty/`/`/`.`                           | `spool guard: refusing to rm '<path>'`                                                    |
+|  1 | Parent not `$COPY_DIR` or non-numeric basename | `spool guard: refusing rm of '<path>' (parent='<p>' name='<n>' not under COPY_DIR/<pid>)` |
 
 **Example**
 ```bash
@@ -221,10 +221,10 @@ _pipeline_run_init
 _run_worker_pass <pass_num> <nameref_rc>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | pass_num | integer | 1-based. Pass 1 prints a "Starting N workers" banner; later passes print a recovery banner. |
-| $2 | nameref_rc | variable name | Name of the caller's integer variable to be set via `local -n`. Written to `1` if any worker exits non-zero; otherwise left alone. |
+| Position | Name       | Type          | Constraint                                                                                                                         |
+| -------: | ---------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+|       $1 | pass_num   | integer       | 1-based. Pass 1 prints a "Starting N workers" banner; later passes print a recovery banner.                                        |
+|       $2 | nameref_rc | variable name | Name of the caller's integer variable to be set via `local -n`. Written to `1` if any worker exits non-zero; otherwise left alone. |
 
 **Returns**: `0` always (failures are communicated via the nameref).
 **Stdout**: one line — either the "Starting N worker(s)..." or the
@@ -294,10 +294,10 @@ Takes no arguments.
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
+|  rc | Meaning                                                                              |
+| --: | ------------------------------------------------------------------------------------ |
 | `0` | One or more orphans were found and re-queued. Caller should run another worker pass. |
-| `1` | No orphans. Caller should break out of the recovery loop. |
+| `1` | No orphans. Caller should break out of the recovery loop.                            |
 
 **Stdout**: silent.
 **Stderr**: On orphans found, a single `log_warn` line: `<N> orphaned job(s) detected — re-queuing for recovery`.
@@ -358,9 +358,9 @@ Takes no arguments.
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Every job completed successfully across every pass. |
+|  rc | Meaning                                                                                                       |
+| --: | ------------------------------------------------------------------------------------------------------------- |
+| `0` | Every job completed successfully across every pass.                                                           |
 | `1` | One or more jobs failed permanently (extract error, oversized archive, or `MAX_RECOVERY_ATTEMPTS` exhausted). |
 
 **Stdout**: progress banners via `_run_worker_pass`.
@@ -413,10 +413,10 @@ Takes no arguments.
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | A worker reported a permanent failure | `one or more workers reported failures` |
-| 1 | `pass > max_recovery` and orphans remain | `max recovery attempts (<n>) reached; some jobs permanently abandoned` |
+| rc | Condition                                | Characteristic stderr                                                  |
+| --: | ---------------------------------------- | ---------------------------------------------------------------------- |
+|  1 | A worker reported a permanent failure    | `one or more workers reported failures`                                |
+|  1 | `pass > max_recovery` and orphans remain | `max recovery attempts (<n>) reached; some jobs permanently abandoned` |
 
 **Example**
 ```bash
@@ -437,18 +437,18 @@ log_info "All jobs completed!"
 _unzip_handle_job <job> <backoff_nameref>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | job | string | Full job line including `~`. |
-| $2 | backoff_nameref | variable name | Name of the caller's associative array (declared `declare -A`) mapping job strings to their current sleep interval. |
+| Position | Name            | Type          | Constraint                                                                                                          |
+| -------: | --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------- |
+|       $1 | job             | string        | Full job line including `~`.                                                                                        |
+|       $2 | backoff_nameref | variable name | Name of the caller's associative array (declared `declare -A`) mapping job strings to their current sleep interval. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | `lib/extract.sh` completed cleanly. |
-| `75` | Space did not fit; job was re-queued. Caller must **not** count this as a failure. |
-| `1` | Permanent failure: extract rc other than 0/75, **or** rc=75 with an empty live ledger (archive too big for filesystem). |
+|   rc | Meaning                                                                                                                 |
+| ---: | ----------------------------------------------------------------------------------------------------------------------- |
+|  `0` | `lib/extract.sh` completed cleanly.                                                                                     |
+| `75` | Space did not fit; job was re-queued. Caller must **not** count this as a failure.                                      |
+|  `1` | Permanent failure: extract rc other than 0/75, **or** rc=75 with an empty live ledger (archive too big for filesystem). |
 
 **Stdout**: silent.
 **Stderr**: `log_error` on permanent failure; `log_debug` on each
@@ -506,10 +506,10 @@ not by this helper).
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | `extract.sh` rc not 0/75 | `extract failed (rc=<n>): <job>` |
-| 1 | rc=75 with empty live ledger | `extract: archive does not fit in scratch space and no siblings are running — archive may be too large for this filesystem: <job>` |
+| rc | Condition                    | Characteristic stderr                                                                                                              |
+| --: | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+|  1 | `extract.sh` rc not 0/75     | `extract failed (rc=<n>): <job>`                                                                                                   |
+|  1 | rc=75 with empty live ledger | `extract: archive does not fit in scratch space and no siblings are running — archive may be too large for this filesystem: <job>` |
 
 **Example**
 ```bash
@@ -532,9 +532,9 @@ Takes no arguments.
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Every job this worker processed either succeeded or was re-queued for space retry. |
+|  rc | Meaning                                                                                                                                       |
+| --: | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0` | Every job this worker processed either succeeded or was re-queued for space retry.                                                            |
 | `1` | At least one job resulted in a permanent failure (non-zero, non-75 rc from `_unzip_handle_job`), OR `queue_pop` returned a hard error (rc=2). |
 
 **Stdout**: silent.
@@ -601,16 +601,16 @@ done
 _dispatch_handle_job <job>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | job | string | Dispatch-stage job token `~extracted_dir\|adapter\|dest~`. |
+| Position | Name | Type   | Constraint                                                 |
+| -------: | ---- | ------ | ---------------------------------------------------------- |
+|       $1 | job  | string | Dispatch-stage job token `~extracted_dir\|adapter\|dest~`. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Dispatch succeeded. |
-| `1` | Token was malformed (`parse_job_line` rejected it). |
+|    rc | Meaning                                                                                     |
+| ----: | ------------------------------------------------------------------------------------------- |
+|   `0` | Dispatch succeeded.                                                                         |
+|   `1` | Token was malformed (`parse_job_line` rejected it).                                         |
 | other | `bash "$ROOT_DIR/lib/dispatch.sh" "$adapter" "$src" "$dest"`'s own exit code is propagated. |
 
 **Stdout**: silent.
@@ -667,10 +667,10 @@ Takes no arguments.
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
+|  rc | Meaning                                                                        |
+| --: | ------------------------------------------------------------------------------ |
 | `0` | Every dispatched job succeeded, OR the queue drained cleanly with no failures. |
-| `1` | At least one dispatch failed, or `queue_pop` returned a hard error. |
+| `1` | At least one dispatch failed, or `queue_pop` returned a hard error.            |
 
 **Stdout**: silent.
 **Stderr**: `log_enter` when `DEBUG_IND=1`; `log_error` on failures.

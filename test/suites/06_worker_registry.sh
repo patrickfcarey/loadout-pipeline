@@ -34,7 +34,7 @@ done < <(
     worker_registry_init
 
     # Simulate a worker that registered a job but was never able to unregister.
-    worker_job_begin "99999" "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
+    worker_job_begin "99999" "extract" "~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"
 
     recovered=$(worker_registry_recover)
     expected="~$ROOT_DIR/test/fixtures/isos/game1.7z|lvol|games/game1~"

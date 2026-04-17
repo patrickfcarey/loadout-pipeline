@@ -312,63 +312,68 @@ All available variables (see `.env.example` for the full annotated reference):
 
 **Pipeline core**
 
-| Variable                          | Default                    | Description                                                                                  |
-|-----------------------------------|----------------------------|----------------------------------------------------------------------------------------------|
-| `DEBUG_IND`                       | `0`                        | Set to `1` for verbose function entry/exit logging to stderr                                 |
-| `MAX_UNZIP`                       | `2`                        | Number of parallel extract-stage workers                                                     |
-| `MAX_DISPATCH`                    | `2`                        | Number of parallel dispatch-stage workers                                                    |
-| `SCRATCH_DISK_DIR`                | `/tmp`                     | Root for all scratch I/O; `EXTRACT_DIR`, `COPY_DIR`, and `QUEUE_DIR` derive from this       |
-| `QUEUE_DIR`                       | `$SCRATCH_DISK_DIR/iso_pipeline_queue`  | Parent directory that holds the two sub-queues, space ledger, and worker registry |
-| `EXTRACT_QUEUE_DIR`               | `$QUEUE_DIR/extract`       | Sub-queue of archives waiting to be copied and extracted                                     |
-| `DISPATCH_QUEUE_DIR`              | `$QUEUE_DIR/dispatch`      | Sub-queue of extracted directories waiting to be handed to an adapter                       |
-| `EXTRACT_DIR`                     | `$SCRATCH_DISK_DIR/iso_pipeline`        | Directory where archives are extracted during processing                       |
-| `COPY_DIR`                        | `$SCRATCH_DISK_DIR/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`            |
-| `SPACE_OVERHEAD_PCT`              | `20`                       | Percent overhead added to raw byte requirement in space reservations                         |
-| `MAX_RECOVERY_ATTEMPTS`           | `3`                        | Max intra-run recovery passes after SIGKILL'd worker(s) are detected                        |
-| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`     | Path to a file listing exact filenames (one per line) to delete from every extracted archive before dispatch; set to empty to disable |
-| `DISPATCH_POLL_INITIAL_MS`        | `50`                       | Starting poll interval (milliseconds) for dispatch workers when the dispatch queue is empty  |
-| `DISPATCH_POLL_MAX_MS`            | `500`                      | Maximum poll interval (milliseconds) for the exponential dispatch backoff                    |
-| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                        | Initial sleep (seconds) for an extract worker after a space-reservation miss                 |
-| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                       | Maximum sleep (seconds) for the exponential space-retry backoff                              |
+| Variable                          | Default                                 | Description                                                                                                                        |
+| --------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `DEBUG_IND`                       | `0`                                     | Logging verbosity: `0` silent, `1` debug, `2` extended. See [Debug output](#debug-output).                                         |
+| `RESUME_PLANNER_IND`              | `0`                                     | Set to `1` to generate a resume plan on each run (cold-restart fast-path)                                                          |
+| `MAX_UNZIP`                       | `2`                                     | Number of parallel extract-stage workers                                                                                           |
+| `MAX_DISPATCH`                    | `2`                                     | Number of parallel dispatch-stage workers                                                                                          |
+| `SCRATCH_DISK_DIR`                | `/tmp`                                  | Root for all scratch I/O; `EXTRACT_DIR`, `COPY_DIR`, and `QUEUE_DIR` derive from this                                              |
+| `QUEUE_DIR`                       | `$SCRATCH_DISK_DIR/iso_pipeline_queue`  | Parent directory that holds the two sub-queues, space ledger, and worker registry                                                  |
+| `EXTRACT_QUEUE_DIR`               | `$QUEUE_DIR/extract`                    | Sub-queue of archives waiting to be copied and extracted                                                                           |
+| `DISPATCH_QUEUE_DIR`              | `$QUEUE_DIR/dispatch`                   | Sub-queue of extracted directories waiting to be handed to an adapter                                                              |
+| `EXTRACT_DIR`                     | `$SCRATCH_DISK_DIR/iso_pipeline`        | Directory where archives are extracted during processing                                                                           |
+| `COPY_DIR`                        | `$SCRATCH_DISK_DIR/iso_pipeline_copies` | Parent of the per-run scratch spool; each run claims `$COPY_DIR/$$`                                                                |
+| `SPACE_OVERHEAD_PCT`              | `20`                                    | Percent overhead added to raw byte requirement in space reservations                                                               |
+| `MAX_RECOVERY_ATTEMPTS`           | `3`                                     | Max intra-run recovery passes after SIGKILL'd worker(s) are detected                                                               |
+| `EXTRACT_STRIP_LIST`              | `$ROOT_DIR/strip.list`                  | Strip-list file — members to delete pre-dispatch. See [Post-extraction strip list](#post-extraction-strip-list). Empty = disabled. |
+| `DISPATCH_POLL_INITIAL_MS`        | `50`                                    | Starting poll interval (milliseconds) for dispatch workers when the dispatch queue is empty                                        |
+| `DISPATCH_POLL_MAX_MS`            | `500`                                   | Maximum poll interval (milliseconds) for the exponential dispatch backoff                                                          |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | `5`                                     | Initial sleep (seconds) for an extract worker after a space-reservation miss                                                       |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | `60`                                    | Maximum sleep (seconds) for the exponential space-retry backoff                                                                    |
 
 **Local volume adapter** (`adapters/lvol.sh`) — **implemented**
 
-| Variable         | Default       | Description                                                  |
-|------------------|---------------|--------------------------------------------------------------|
-| `LVOL_MOUNT_POINT` | `/mnt/lvol` | Root destination directory (any writable local path)         |
+| Variable           | Default     | Description                                          |
+| ------------------ | ----------- | ---------------------------------------------------- |
+| `LVOL_MOUNT_POINT` | `/mnt/lvol` | Root destination directory (any writable local path) |
 
 **FTP adapter** (`adapters/ftp.sh`) — stub
 
 | Variable   | Default | Description         |
-|------------|---------|---------------------|
+| ---------- | ------- | ------------------- |
 | `FTP_HOST` |         | FTP server hostname |
 | `FTP_USER` |         | FTP username        |
 | `FTP_PASS` |         | FTP password        |
 | `FTP_PORT` | `21`    | FTP port            |
 
-**HDL dump adapter** (`adapters/hdl_dump.sh`) — stub
+**HDL dump adapter** (`adapters/hdl_dump.sh`)
 
-| Variable       | Default    | Description                   |
-|----------------|------------|-------------------------------|
-| `HDL_DUMP_BIN` | `hdl_dump` | Path to the `hdl_dump` binary |
+| Variable             | Default    | Description                                                               |
+| -------------------- | ---------- | ------------------------------------------------------------------------- |
+| `HDL_DUMP_BIN`       | `hdl_dump` | Path to the `hdl_dump` binary                                             |
+| `HDL_HOST_DEVICE`    |            | Device id used for a startup writability probe (e.g. `sri:`); empty skips |
+| `HDL_INSTALL_TARGET` |            | `hdl_dump` target for every inject (e.g. `hdd0:`); required for hdl jobs  |
+
+Per-job fields (disc format and PS2 title) come from the `.jobs` line — see the Jobs file format section for the 4-field hdl syntax. `hdl_dump` resolves `HDL_INSTALL_TARGET` via the operator's own `~/.hdl_dump.conf`; the adapter does not rewrite `HOME` or fabricate a scratch config.
 
 **rclone adapter** (`adapters/rclone.sh`) — stub
 
-| Variable           | Default | Description                                                          |
-|--------------------|---------|----------------------------------------------------------------------|
-| `RCLONE_REMOTE`    |         | Remote name as configured in `rclone config` (e.g. `gdrive:`)        |
-| `RCLONE_DEST_BASE` |         | Base path on the remote, prepended to the job's destination          |
-| `RCLONE_FLAGS`     |         | Extra flags passed through to `rclone copy`                          |
+| Variable           | Default | Description                                                   |
+| ------------------ | ------- | ------------------------------------------------------------- |
+| `RCLONE_REMOTE`    |         | Remote name as configured in `rclone config` (e.g. `gdrive:`) |
+| `RCLONE_DEST_BASE` |         | Base path on the remote, prepended to the job's destination   |
+| `RCLONE_FLAGS`     |         | Extra flags passed through to `rclone copy`                   |
 
-**rsync adapter** (`adapters/rsync.sh`)
+**rsync adapter** (`adapters/rsync.sh`) — **implemented**
 
-| Variable         | Default | Description                           |
-|------------------|---------|---------------------------------------|
-| `RSYNC_DEST_BASE`|         | Base path prepended to the destination |
-| `RSYNC_HOST`     |         | Remote host; empty = local target     |
-| `RSYNC_USER`     |         | SSH user for remote transfers         |
-| `RSYNC_SSH_PORT` | `22`    | SSH port for remote transfers         |
-| `RSYNC_FLAGS`    |         | Extra flags passed through to `rsync` |
+| Variable          | Default | Description                            |
+| ----------------- | ------- | -------------------------------------- |
+| `RSYNC_DEST_BASE` |         | Base path prepended to the destination |
+| `RSYNC_HOST`      |         | Remote host; empty = local target      |
+| `RSYNC_USER`      |         | SSH user for remote transfers          |
+| `RSYNC_SSH_PORT`  | `22`    | SSH port for remote transfers          |
+| `RSYNC_FLAGS`     |         | Extra flags passed through to `rsync`  |
 
 Environment variables set before the call always override `.env`:
 
@@ -505,11 +510,11 @@ MAX_UNZIP=    bash bin/loadout-pipeline.sh examples/lvol.jobs   # empty string
 
 Three directories control where the pipeline writes during processing. By default all three are under `/tmp`, which is world-writable. For production or multi-user systems, move them to paths you own.
 
-| Variable      | Default                    | Role |
-|---------------|----------------------------|------|
+| Variable      | Default                    | Role                                                             |
+| ------------- | -------------------------- | ---------------------------------------------------------------- |
 | `EXTRACT_DIR` | `/tmp/iso_pipeline`        | Where archives are extracted; cleaned up when dispatch completes |
-| `COPY_DIR`    | `/tmp/iso_pipeline_copies` | Parent of the per-run scratch spool (`$COPY_DIR/$$`) |
-| `QUEUE_DIR`   | `/tmp/iso_pipeline_queue`  | File-based queues, space ledger, worker registry |
+| `COPY_DIR`    | `/tmp/iso_pipeline_copies` | Parent of the per-run scratch spool (`$COPY_DIR/$$`)             |
+| `QUEUE_DIR`   | `/tmp/iso_pipeline_queue`  | File-based queues, space ledger, worker registry                 |
 
 ```bash
 # Move everything off /tmp — dedicated paths owned by the current user
@@ -664,11 +669,20 @@ EXTRACT_STRIP_LIST= bash bin/loadout-pipeline.sh examples/lvol.jobs
 
 ### Debug output
 
-`DEBUG_IND=1` prints every function entry, exit, and job decision to stderr. Normal pipeline output goes to stdout; debug output goes to stderr. Redirect them independently.
+`DEBUG_IND` has three hierarchical levels; each one is a superset of the one below it. All debug output goes to stderr — pipeline stdout stays clean at every level.
+
+- **`0` (default)** — silent. Only `log_info` / `log_warn` / `log_error` reach the operator. Production default.
+- **`1`** — adds `log_enter` / `log_debug` / `log_trace` plus a RETURN trap that logs every function exit in sourced libs.
+- **`2`** — everything level 1 emits, plus `log_cmd`, `log_var`, `log_fs`, and `log_xtrace` (external-command audit, variable dumps, filesystem mutations, extended subprocess traces). The RETURN trap line additionally carries `rc=N` so non-zero returns stand out without grepping.
+
+The value is validated at startup — a typo like `DEBUG_IND=true` aborts with exit 2 rather than silently degrading to `0`. See [`ai_agent_entry_point.md`](ai_agent_entry_point.md#logging-framework-liblogging-sh) for the full per-helper reference.
 
 ```bash
 # See everything the pipeline does
 DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/lvol.jobs
+
+# Deep-dive: include external command invocations and exit codes
+DEBUG_IND=2 bash bin/loadout-pipeline.sh examples/lvol.jobs 2>pipeline_debug.log
 
 # Capture debug log to a file, normal output to the terminal
 DEBUG_IND=1 bash bin/loadout-pipeline.sh examples/lvol.jobs 2>pipeline.log
@@ -746,16 +760,16 @@ EXTRACT_STRIP_LIST=~/my_strip.list \
 
 The pipeline validates all numeric variables at startup. Invalid values exit with code 2 and identify the offending variable by name before any job runs.
 
-| Variable | Constraint | Example accepted | Example rejected |
-|----------|-----------|-----------------|-----------------|
-| `MAX_UNZIP` | positive integer (≥ 1) | `1`, `4`, `8` | `0`, `-1`, `abc`, `` |
-| `MAX_DISPATCH` | positive integer (≥ 1) | `1`, `2`, `4` | `0`, `-1`, `abc`, `` |
-| `MAX_RECOVERY_ATTEMPTS` | positive integer (≥ 1) | `1`, `3`, `5` | `0`, `-1`, `abc`, `` |
-| `DISPATCH_POLL_INITIAL_MS` | positive integer, ≤ MAX | `10`, `50`, `200` | `0`, `abc`, `1000` (if MAX=500) |
-| `DISPATCH_POLL_MAX_MS` | positive integer, ≥ INITIAL | `100`, `500`, `2000` | `0`, `abc`, `500` (if INITIAL=1000) |
-| `SPACE_OVERHEAD_PCT` | non-negative integer (≥ 0) | `0`, `20`, `50` | `-1`, `5%`, `abc`, `` |
-| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | non-negative number, decimals ok | `0`, `5`, `0.5` | `-1`, `5s`, `abc`, `` |
-| `SPACE_RETRY_BACKOFF_MAX_SEC` | non-negative number, decimals ok | `10`, `60`, `120` | `-1`, `5s`, `abc`, `` |
+| Variable                          | Constraint                       | Example accepted     | Example rejected                    |
+| --------------------------------- | -------------------------------- | -------------------- | ----------------------------------- |
+| `MAX_UNZIP`                       | positive integer (≥ 1)           | `1`, `4`, `8`        | `0`, `-1`, `abc`, ``                |
+| `MAX_DISPATCH`                    | positive integer (≥ 1)           | `1`, `2`, `4`        | `0`, `-1`, `abc`, ``                |
+| `MAX_RECOVERY_ATTEMPTS`           | positive integer (≥ 1)           | `1`, `3`, `5`        | `0`, `-1`, `abc`, ``                |
+| `DISPATCH_POLL_INITIAL_MS`        | positive integer, ≤ MAX          | `10`, `50`, `200`    | `0`, `abc`, `1000` (if MAX=500)     |
+| `DISPATCH_POLL_MAX_MS`            | positive integer, ≥ INITIAL      | `100`, `500`, `2000` | `0`, `abc`, `500` (if INITIAL=1000) |
+| `SPACE_OVERHEAD_PCT`              | non-negative integer (≥ 0)       | `0`, `20`, `50`      | `-1`, `5%`, `abc`, ``               |
+| `SPACE_RETRY_BACKOFF_INITIAL_SEC` | non-negative number, decimals ok | `0`, `5`, `0.5`      | `-1`, `5s`, `abc`, ``               |
+| `SPACE_RETRY_BACKOFF_MAX_SEC`     | non-negative number, decimals ok | `10`, `60`, `120`    | `-1`, `5s`, `abc`, ``               |
 
 > **Credentials belong in `.env`, not on the command line.**
 > Values passed inline appear in shell history (`history`) and process listings (`ps aux`),
@@ -784,12 +798,12 @@ docker build -t loadout-pipeline .
 
 ### Mount conventions
 
-| Mount path inside container | Purpose |
-|-----------------------------|---------|
-| `/isos` | Read-only source archives — reference these paths in `.jobs` files |
-| `/jobs` | Read-only mount for a single `.jobs` file or a profile directory of `.jobs` files |
-| `/mnt/lvol` | Writable local volume destination (`LVOL_MOUNT_POINT` default) |
-| `/opt/loadout-pipeline/.env` | Optional credentials file (bind-mount, never bake in) |
+| Mount path inside container  | Purpose                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `/isos`                      | Read-only source archives — reference these paths in `.jobs` files                |
+| `/jobs`                      | Read-only mount for a single `.jobs` file or a profile directory of `.jobs` files |
+| `/mnt/lvol`                  | Writable local volume destination (`LVOL_MOUNT_POINT` default)                    |
+| `/opt/loadout-pipeline/.env` | Optional credentials file (bind-mount, never bake in)                             |
 
 Mount your volume on the host first (e.g. `sudo mount /dev/sdX /mnt/lvol`), then pass that path as a volume. The container never touches the block device directly so `--privileged` is not required for the lvol adapter.
 
@@ -923,58 +937,85 @@ Each line must start and end with `~`, with the three fields separated by `|`:
 ~iso_path|adapter_type|adapter_destination~
 ```
 
-| Field                 | Description                                              |
-|-----------------------|----------------------------------------------------------|
-| `iso_path`            | Absolute path to the `.7z` archive                       |
-| `adapter_type`        | One of: `ftp`, `hdl`, `lvol`, `rclone`, `rsync`            |
-| `adapter_destination` | Adapter-specific path (see below)                        |
+| Field                 | Description                                     |
+| --------------------- | ----------------------------------------------- |
+| `iso_path`            | Absolute path to the `.7z` archive              |
+| `adapter_type`        | One of: `ftp`, `hdl`, `lvol`, `rclone`, `rsync` |
+| `adapter_destination` | Adapter-specific path (see below)               |
 
 **Destination field by adapter:**
 
-| Adapter  | Destination meaning                                                        |
-|----------|----------------------------------------------------------------------------|
-| `lvol`     | Subdirectory under `LVOL_MOUNT_POINT` — e.g. `ps1/crash` → copies to `$LVOL_MOUNT_POINT/ps1/crash/` |
-| `ftp`    | Remote path on the FTP server                                              |
-| `hdl`    | Block device path for the PS2 HDD (e.g. `/dev/sdb`)                        |
-| `rclone` | Path relative to `RCLONE_DEST_BASE` on the configured remote               |
-| `rsync`  | Path relative to `RSYNC_DEST_BASE` on the local or remote host             |
+| Adapter  | Destination meaning                                                                                 |
+| -------- | --------------------------------------------------------------------------------------------------- |
+| `lvol`   | Subdirectory under `LVOL_MOUNT_POINT` — e.g. `ps1/crash` → copies to `$LVOL_MOUNT_POINT/ps1/crash/` |
+| `ftp`    | Remote path on the FTP server                                                                       |
+| `hdl`    | Two extra fields: `\|<cd\|dvd>\|<title>` (see note below)                                           |
+| `rclone` | Path relative to `RCLONE_DEST_BASE` on the configured remote                                        |
+| `rsync`  | Path relative to `RSYNC_DEST_BASE` on the local or remote host                                      |
+
+`hdl` jobs are the one exception to the three-field rule: they carry two extra pipe-delimited fields after the adapter key, giving the full shape `~<iso>|hdl|<cd|dvd>|<title>~`. The PS2 host device and install target are operator-wide env vars (`HDL_HOST_DEVICE`, `HDL_INSTALL_TARGET`), not per-job fields.
 
 Example — all five adapters in one file:
 
 ```
 ~/isos/ps1/crash.7z|lvol|ps1/crash~
 ~/isos/ps1/spyro.7z|ftp|/games/ps1/spyro~
-~/isos/ps2/ico.7z|hdl|/dev/sdb~
+~/isos/ps2/ico.7z|hdl|dvd|ICO~
 ~/isos/pc/quake.7z|rclone|pc/quake~
 ~/isos/pc/doom.7z|rsync|games/pc/doom~
 ```
 
-Blank lines and lines starting with `#` are ignored, so you can annotate jobs files freely:
+### Comments
+
+Blank lines and lines starting with `#` are ignored, so you can annotate jobs files freely. Block comments using `/* ... */` are also supported (each marker must be the first non-whitespace on its line):
 
 ```
 # PS1 titles — local volume
 ~/isos/ps1/crash.7z|lvol|ps1/crash~
 ~/isos/ps1/spyro.7z|lvol|ps1/spyro~
 
-# PS2 titles — internal HDD
-~/isos/ps2/ico.7z|hdl|/dev/sdb~
+/*
+  PS2 titles — disabled until HDD
+  adapter is fully implemented.
+*/
+
+# PS2 titles — internal HDD (hdl jobs use 4 fields: <iso>|hdl|<cd|dvd>|<title>;
+# HDL_HOST_DEVICE and HDL_INSTALL_TARGET come from the environment)
+~/isos/ps2/ico.7z|hdl|dvd|ICO~
 ```
+
+### Header and footer (optional)
+
+Jobs files may optionally begin with a `---JOBS---` header and end with a `---END---` footer. When a header is present, only lines between `---JOBS---` and `---END---` are parsed as jobs; lines outside these markers are ignored. Files without markers parse identically to before (the whole file is treated as the body):
+
+```
+---JOBS---
+~/isos/ps1/crash.7z|lvol|ps1/crash~
+~/isos/ps1/spyro.7z|lvol|ps1/spyro~
+---END---
+```
+
+### Future columns
+
+The three fields (`iso_path`, `adapter_type`, `adapter_destination`) are frozen. Future versions may append additional `|`-delimited fields after the destination; existing three-field lines will continue to parse unchanged.
 
 ---
 
 ## Adapters
 
-| Adapter  | Key      | Script                 | Status          | Env vars required                                                            |
-|----------|----------|------------------------|-----------------|------------------------------------------------------------------------------|
-| Local vol  | `lvol`     | `adapters/lvol.sh`   | **Implemented** | `LVOL_MOUNT_POINT`                                                              |
-| FTP      | `ftp`    | `adapters/ftp.sh`      | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                               |
-| HDL dump | `hdl`    | `adapters/hdl_dump.sh` | Stub            | `HDL_DUMP_BIN`                                                               |
-| rclone   | `rclone` | `adapters/rclone.sh`   | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                          |
-| rsync    | `rsync`  | `adapters/rsync.sh`    | Stub            | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` |
+| Adapter   | Key      | Status          | Env vars required                                                              |
+| --------- | -------- | --------------- | ------------------------------------------------------------------------------ |
+| Local vol | `lvol`   | **Implemented** | `LVOL_MOUNT_POINT`                                                             |
+| FTP       | `ftp`    | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
+| HDL dump  | `hdl`    | **Implemented** | `HDL_DUMP_BIN`                                                                 |
+| rclone    | `rclone` | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                            |
+| rsync     | `rsync`  | **Implemented** | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` |
 
-Stub adapters log what they would do but do not transfer any files. Each script contains implementation notes and a `TODO` marker showing where to add real transfer logic.
+Each adapter lives at `adapters/<key>.sh` (e.g. `hdl` → `adapters/hdl_dump.sh`). Stub adapters log what they would do but do not transfer any files. Each stub script contains implementation notes and a `TODO` marker showing where to add real transfer logic.
 
 The local volume adapter (`adapters/lvol.sh`) is fully implemented: it validates `LVOL_MOUNT_POINT`, creates the destination directory, and uses `rsync -a` (falling back to `cp -r` if rsync is unavailable) to copy the extracted contents. `LVOL_MOUNT_POINT` can be any writable local directory — an SD card, a USB drive, an NVMe/SSD/HDD enclosure, a NAS mount, or a plain folder.
+
+The rsync adapter (`adapters/rsync.sh`) is fully implemented: it supports both local and remote transfers via `RSYNC_HOST`, builds destination paths under `RSYNC_DEST_BASE`, and uses resumable, checksum-verified, compressed rsync with configurable flags via `RSYNC_FLAGS`.
 
 To add a new adapter: create `adapters/<name>.sh`, add a matching case to `lib/dispatch.sh` and `lib/precheck.sh`, and extend the regex in `lib/jobs.sh`.
 
@@ -1027,9 +1068,9 @@ bash test/fixtures/create_fixtures.sh
 bash test/run_tests.sh
 ```
 
-The suite runs **27 test cases (99 assertions)** covering: default run, single worker (`MAX_UNZIP=1`), more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (`.bin` + `.cue`), partial-hit precheck, mid-extract failure + cleanup, rerun after failure, concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit test, rclone/rsync adapter smoke tests, intra-run orphan recovery via the worker registry, phantom ledger GC after SIGKILL, mid-string `/../` rejection in the job-line parser, a real 196 MB PS2 game archive exercising spaces and parentheses in the iso path (Test 21 — **hard-fails when the archive is absent** — place it at `test/fixtures/isos/Ultimate Board Game Collection (USA).7z`), and regression pins for C1 (basename `.`), C2 (`_space_dev` infinite loop), H1 (queue_pop exit code), and M3 (worker registry consecutive-space preservation).
+The suite runs **107 test cases (467 assertions)** covering: default run, single worker (`MAX_UNZIP=1`), more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (`.bin` + `.cue`), partial-hit precheck, mid-extract failure + cleanup, rerun after failure, concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit test, rclone/rsync/ftp adapter end-to-end and validation tests, adapter stub fallback behaviour, intra-run orphan recovery via the worker registry, phantom ledger GC after SIGKILL, mid-string `/../` rejection in the job-line parser, a real 196 MB PS2 game archive exercising spaces and parentheses in the iso path (Test 21 — **hard-fails when the archive is absent** — place it at `test/fixtures/isos/Ultimate Board Game Collection (USA).7z`), and regression pins for C1 (basename `.`), C2 (`_space_dev` infinite loop), H1 (queue_pop exit code), and M3 (worker registry consecutive-space preservation).
 
-To validate that every assertion in the suite can actually detect a failure (57 mutation checks):
+To validate that every assertion in the suite can actually detect a failure (61 mutation checks):
 
 ```bash
 bash test/validate_tests.sh
@@ -1057,7 +1098,7 @@ The integration suite exercises every scenario on a **real kernel substrate**: a
 bash test/integration/launch.sh
 ```
 
-This builds a privileged container, generates synthetic fixtures, provisions all substrates, and runs **27 integration scenarios**. The suite always exits non-zero because three stub-adapter scenarios (ftp, hdl_dump, rclone) intentionally hard-fail until real implementations land — their failures appear in the output with an explanatory message. All other scenarios are expected to pass.
+This builds a privileged container, generates synthetic fixtures, provisions all substrates, and runs the integration scenarios. Stub-adapter scenarios (ftp, rclone) intentionally hard-fail until real implementations land — their failures appear in the output with an explanatory message. All other scenarios are expected to pass.
 
 **Notes:**
 - On WSL2, the `loop` and `vfat` kernel modules must be available. A stock distro-provided kernel (`uname -r` containing `-microsoft`) includes both; a custom kernel may not.

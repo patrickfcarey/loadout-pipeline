@@ -27,31 +27,31 @@ breaks the worker's retry recognition in `lib/workers.sh:_unzip_handle_job`.
 bash lib/extract.sh <job>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | job | string | Full job token `~iso_path\|adapter\|dest~`. |
+| Position | Name | Type   | Constraint                                  |
+| -------: | ---- | ------ | ------------------------------------------- |
+|       $1 | job  | string | Full job token `~iso_path\|adapter\|dest~`. |
 
 **Env dependencies**
 
-| Var | Read by | Purpose |
-|---|---|---|
-| `ROOT_DIR` | self + sourced libs | Resolve sibling libraries. Derived from `$0` if unset. |
-| `QUEUE_DIR` | `lib/space.sh`, `lib/queue.sh` | Space ledger + dispatch queue location. |
-| `COPY_DIR` | space reserve / copy stage | Fast scratch area for the archive copy. |
-| `COPY_SPOOL` | copy stage | Optional per-worker override of `$COPY_DIR` (workers set this via `_spool_sweep_and_claim`). |
-| `EXTRACT_DIR` | extract stage | Where `7z x` writes the payload tree. |
-| `EXTRACT_STRIP_LIST` | `_strip_pass` | Optional override; defaults to `$ROOT_DIR/strip.list`. |
-| `DISPATCH_QUEUE_DIR` | `queue_push` at end | Target of the handoff token. |
-| `LOG_LEVEL`, `DEBUG_IND` | sourced `logging.sh` | Log verbosity knobs. |
+| Var                      | Read by                        | Purpose                                                                                      |
+| ------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `ROOT_DIR`               | self + sourced libs            | Resolve sibling libraries. Derived from `$0` if unset.                                       |
+| `QUEUE_DIR`              | `lib/space.sh`, `lib/queue.sh` | Space ledger + dispatch queue location.                                                      |
+| `COPY_DIR`               | space reserve / copy stage     | Fast scratch area for the archive copy.                                                      |
+| `COPY_SPOOL`             | copy stage                     | Optional per-worker override of `$COPY_DIR` (workers set this via `_spool_sweep_and_claim`). |
+| `EXTRACT_DIR`            | extract stage                  | Where `7z x` writes the payload tree.                                                        |
+| `EXTRACT_STRIP_LIST`     | `_strip_pass`                  | Optional override; defaults to `$ROOT_DIR/strip.list`.                                       |
+| `DISPATCH_QUEUE_DIR`     | `queue_push` at end            | Target of the handoff token.                                                                 |
+| `LOG_LEVEL`, `DEBUG_IND` | sourced `logging.sh`           | Log verbosity knobs.                                                                         |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Success. Either precheck skipped the job, or the full copy+extract+strip+dispatch-queue-push ran and the dispatch token was queued. |
-| `1` | Hard failure — malformed job, empty/broken archive, invalid archive basename, symlink at `out_dir`, flatten ambiguity, dispatch queue push failed. |
-| `2` | Precheck fatal (malformed archive, unknown adapter). Propagated verbatim from `precheck.sh`. |
-| `75` | Space reservation did not fit. Worker re-queues for a later retry. Chosen so it collides with no normal shell exit code. |
+|   rc | Meaning                                                                                                                                            |
+| ---: | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+|  `0` | Success. Either precheck skipped the job, or the full copy+extract+strip+dispatch-queue-push ran and the dispatch token was queued.                |
+|  `1` | Hard failure — malformed job, empty/broken archive, invalid archive basename, symlink at `out_dir`, flatten ambiguity, dispatch queue push failed. |
+|  `2` | Precheck fatal (malformed archive, unknown adapter). Propagated verbatim from `precheck.sh`.                                                       |
+| `75` | Space reservation did not fit. Worker re-queues for a later retry. Chosen so it collides with no normal shell exit code.                           |
 
 **Stdout**: `[extract] Copying ...`, `[extract] Extracting ...`,
 `[extract] Stripping ...`, `[extract] Flattening ...`, and
@@ -158,15 +158,15 @@ error the `log_error` lines identify the offending job and stage.
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | Malformed job token | `extract.sh: malformed job token (parser rejected): <job>` |
-| 1 | Invalid archive basename | `extract: refusing invalid archive basename: '<name>' ...` |
-| 1 | Symlink at `out_dir` | `extract: refusing to write into symlink at output dir: <path>` |
-| 1 | Flatten ambiguity (mixed top-level) | `extract: cannot flatten wrapper for ... — top level has N directories and M non-directory entries; skipping this job` |
-| 1 | Wrapper rmdir failed | `extract: failed to remove emptied wrapper dir <wrapper>` |
-| 2 | Precheck fatal (propagated) | (from `precheck.sh`) |
-| 75 | Space reservation did not fit | `← extract.sh  space reservation did not fit, will retry` |
+| rc | Condition                           | Characteristic stderr                                                                                                  |
+| --: | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+|  1 | Malformed job token                 | `extract.sh: malformed job token (parser rejected): <job>`                                                             |
+|  1 | Invalid archive basename            | `extract: refusing invalid archive basename: '<name>' ...`                                                             |
+|  1 | Symlink at `out_dir`                | `extract: refusing to write into symlink at output dir: <path>`                                                        |
+|  1 | Flatten ambiguity (mixed top-level) | `extract: cannot flatten wrapper for ... — top level has N directories and M non-directory entries; skipping this job` |
+|  1 | Wrapper rmdir failed                | `extract: failed to remove emptied wrapper dir <wrapper>`                                                              |
+|  2 | Precheck fatal (propagated)         | (from `precheck.sh`)                                                                                                   |
+| 75 | Space reservation did not fit       | `← extract.sh  space reservation did not fit, will retry`                                                              |
 
 **Example**
 ```bash
@@ -275,9 +275,9 @@ trap _on_exit EXIT
 _strip_pass <target_dir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | target_dir | absolute path | Directory containing the freshly extracted payload. |
+| Position | Name       | Type          | Constraint                                          |
+| -------: | ---------- | ------------- | --------------------------------------------------- |
+|       $1 | target_dir | absolute path | Directory containing the freshly extracted payload. |
 
 **Returns**: `0` always.
 **Stdout**: `[extract] Stripping '<filename>'` for each removed entry.
@@ -348,15 +348,15 @@ _strip_pass "$out_dir"  # after flatten — catches files that lived inside the 
 _maybe_flatten_wrapper <dir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | dir | absolute path | Top-level of the extracted payload (`$out_dir`). |
+| Position | Name | Type          | Constraint                                       |
+| -------: | ---- | ------------- | ------------------------------------------------ |
+|       $1 | dir  | absolute path | Top-level of the extracted payload (`$out_dir`). |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Either no flatten was needed (loose files or empty dir), or a single-wrapper-dir was successfully flattened. |
+|  rc | Meaning                                                                                                                                                  |
+| --: | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0` | Either no flatten was needed (loose files or empty dir), or a single-wrapper-dir was successfully flattened.                                             |
 | `1` | Top-level is ambiguous (more than one directory, or a mix of files + directories, or a top-level symlink), or the `rmdir` of the emptied wrapper failed. |
 
 **Stdout**: `[extract] Flattening wrapper '<name>'` on a successful flatten.
@@ -421,10 +421,10 @@ _maybe_flatten_wrapper <dir>
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | Ambiguous top level | `extract: cannot flatten wrapper for '<name>' — top level has N directories and M non-directory entries; skipping this job` |
-| 1 | rmdir of emptied wrapper failed | `extract: failed to remove emptied wrapper dir <wrapper>` |
+| rc | Condition                       | Characteristic stderr                                                                                                       |
+| --: | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+|  1 | Ambiguous top level             | `extract: cannot flatten wrapper for '<name>' — top level has N directories and M non-directory entries; skipping this job` |
+|  1 | rmdir of emptied wrapper failed | `extract: failed to remove emptied wrapper dir <wrapper>`                                                                   |
 
 **Example**
 ```bash
@@ -446,26 +446,26 @@ _strip_pass "$out_dir"  # post-flatten strip
 bash lib/precheck.sh <adapter> <archive> <dest>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | adapter | string | One of `lvol`, `ftp`, `hdl`, `rclone`, `rsync`. |
-| $2 | archive | absolute path | `.7z` archive on disk. |
-| $3 | dest | string | Adapter-specific destination path (from the job line). |
+| Position | Name    | Type          | Constraint                                             |
+| -------: | ------- | ------------- | ------------------------------------------------------ |
+|       $1 | adapter | string        | One of `lvol`, `ftp`, `hdl`, `rclone`, `rsync`.        |
+|       $2 | archive | absolute path | `.7z` archive on disk.                                 |
+|       $3 | dest    | string        | Adapter-specific destination path (from the job line). |
 
 **Env dependencies**
 
-| Var | Read by | Purpose |
-|---|---|---|
-| `ROOT_DIR` | self + sourced libs | Resolve `logging.sh`, `strip_list.sh`. |
-| `LVOL_MOUNT_POINT` | sd arm | Mount point for the SD destination — used to build `local_root` and enforce containment. |
-| `EXTRACT_STRIP_LIST` | `strip_list_contains` | Skip files that will never be dispatched anyway. |
+| Var                  | Read by               | Purpose                                                                                  |
+| -------------------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| `ROOT_DIR`           | self + sourced libs   | Resolve `logging.sh`, `strip_list.sh`.                                                   |
+| `LVOL_MOUNT_POINT`   | sd arm                | Mount point for the SD destination — used to build `local_root` and enforce containment. |
+| `EXTRACT_STRIP_LIST` | `strip_list_contains` | Skip files that will never be dispatched anyway.                                         |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Content already at destination — skip this job. |
-| `1` | Content not present — proceed with copy + extract + dispatch. |
+|  rc | Meaning                                                                                                          |
+| --: | ---------------------------------------------------------------------------------------------------------------- |
+| `0` | Content already at destination — skip this job.                                                                  |
+| `1` | Content not present — proceed with copy + extract + dispatch.                                                    |
 | `2` | Fatal: empty/unreadable archive, unknown adapter, unsafe member path, or destination escapes `LVOL_MOUNT_POINT`. |
 
 **Stdout**: silent (all progress goes to `log_trace`).
@@ -495,10 +495,13 @@ bash lib/precheck.sh <adapter> <archive> <dest>
 
 **Invariants**
 
-- **Stubs are pessimistic**. `ftp`, `hdl`, `rclone`, `rsync` always
-  return `already_present=0` — they always proceed with work rather
-  than risk a false skip. Turning any stub into a real check is a
-  drop-in replacement at the corresponding `case` arm.
+- **Stubs are pessimistic**. `ftp`, `rclone`, `rsync` always return
+  `already_present=0` — they always proceed with work rather than
+  risk a false skip. Turning any stub into a real check is a drop-in
+  replacement at the corresponding `case` arm. `hdl` is a real
+  check (`hdl_dump toc "$HDL_INSTALL_TARGET"` grepped for the
+  title); it falls through to the pessimistic branch only when
+  `HDL_INSTALL_TARGET` is empty or `hdl_dump` is missing from PATH.
 - **Multi-file archives**: the sd arm checks **every** contained
   member. If ANY one is missing, the archive counts as "not
   present" and the whole job re-runs. Partial presence is treated
@@ -547,12 +550,12 @@ bash lib/precheck.sh <adapter> <archive> <dest>
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 2 | Empty/unreadable archive | `precheck: archive <archive> is empty or unreadable` |
-| 2 | Unsafe member path | `precheck: archive <archive> contains unsafe member path — refusing to probe: <member>` |
-| 2 | Destination escapes LVOL_MOUNT_POINT | `precheck: destination escapes LVOL_MOUNT_POINT — refusing probe: <canonical>` |
-| 2 | Unknown adapter | `precheck: unknown adapter: <adapter>` |
+| rc | Condition                            | Characteristic stderr                                                                   |
+| --: | ------------------------------------ | --------------------------------------------------------------------------------------- |
+|  2 | Empty/unreadable archive             | `precheck: archive <archive> is empty or unreadable`                                    |
+|  2 | Unsafe member path                   | `precheck: archive <archive> contains unsafe member path — refusing to probe: <member>` |
+|  2 | Destination escapes LVOL_MOUNT_POINT | `precheck: destination escapes LVOL_MOUNT_POINT — refusing probe: <canonical>`          |
+|  2 | Unknown adapter                      | `precheck: unknown adapter: <adapter>`                                                  |
 
 **Example**
 ```bash
@@ -564,9 +567,9 @@ case $? in
 esac
 ```
 
-**Exemptions**: `ftp`, `hdl`, `rclone` stub behavior is **not**
-frozen — each may be replaced with a real implementation without a
-migration note, so long as the rc=0/1/2 contract is preserved.
+**Exemptions**: `ftp`, `rclone` stub behavior is **not** frozen —
+each may be replaced with a real implementation without a migration
+note, so long as the rc=0/1/2 contract is preserved.
 
 ### `_precheck_member_is_safe`
 
@@ -580,16 +583,16 @@ migration note, so long as the rc=0/1/2 contract is preserved.
 _precheck_member_is_safe <member>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | member | string | Archive-member filename as emitted by `7z l -slt` on a `Path = ` line. |
+| Position | Name   | Type   | Constraint                                                             |
+| -------: | ------ | ------ | ---------------------------------------------------------------------- |
+|       $1 | member | string | Archive-member filename as emitted by `7z l -slt` on a `Path = ` line. |
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
+|  rc | Meaning                                                                            |
+| --: | ---------------------------------------------------------------------------------- |
 | `0` | Safe — `member` is a relative path that cannot escape `$local_root` when appended. |
-| `1` | Unsafe — caller must refuse to use `$member` as a relative path. |
+| `1` | Unsafe — caller must refuse to use `$member` as a relative path.                   |
 
 **Stdout**: silent.
 **Stderr**: silent (caller logs the warning with full context).
@@ -650,22 +653,22 @@ fi
 bash lib/dispatch.sh <adapter> <src> <dest>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | adapter | string | One of `ftp`, `hdl`, `lvol`, `rclone`, `rsync`. |
-| $2 | src | absolute path | Extracted payload directory. |
-| $3 | dest | string | Adapter-specific destination spec. |
+| Position | Name    | Type          | Constraint                                      |
+| -------: | ------- | ------------- | ----------------------------------------------- |
+|       $1 | adapter | string        | One of `ftp`, `hdl`, `lvol`, `rclone`, `rsync`. |
+|       $2 | src     | absolute path | Extracted payload directory.                    |
+|       $3 | dest    | string        | Adapter-specific destination spec.              |
 
 **Env dependencies**
 
-| Var | Read by | Purpose |
-|---|---|---|
-| `ROOT_DIR` | self + sourced libs | Resolve the target adapter script. |
-| `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT` | ftp arm only | Forwarded to `ftp.sh`. |
-| `HDL_DUMP_BIN` | hdl arm only | Forwarded to `hdl_dump.sh`. |
-| `LVOL_MOUNT_POINT` | sd arm only | Forwarded to `lvol.sh`. |
-| `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS` | rclone arm only | Forwarded to `rclone.sh`. |
-| `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` | rsync arm only | Forwarded to `rsync.sh`. |
+| Var                                                                            | Read by             | Purpose                            |
+| ------------------------------------------------------------------------------ | ------------------- | ---------------------------------- |
+| `ROOT_DIR`                                                                     | self + sourced libs | Resolve the target adapter script. |
+| `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 | ftp arm only        | Forwarded to `ftp.sh`.             |
+| `HDL_DUMP_BIN`                                                                 | hdl arm only        | Forwarded to `hdl_dump.sh`.        |
+| `LVOL_MOUNT_POINT`                                                             | sd arm only         | Forwarded to `lvol.sh`.            |
+| `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                            | rclone arm only     | Forwarded to `rclone.sh`.          |
+| `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` | rsync arm only      | Forwarded to `rsync.sh`.           |
 
 **Returns**: rc of the adapter subprocess; `1` on unknown adapter.
 **Stdout**: silent (adapter's stdout passes through).
@@ -715,17 +718,17 @@ bash lib/dispatch.sh <adapter> <src> <dest>
 
 **Error modes**
 
-| rc | Condition | Characteristic stderr |
-|---:|---|---|
-| 1 | Unknown adapter | `unknown adapter: <adapter>` |
-| * | Adapter subprocess failure | Adapter-specific |
+| rc | Condition                  | Characteristic stderr        |
+| --: | -------------------------- | ---------------------------- |
+|  1 | Unknown adapter            | `unknown adapter: <adapter>` |
+|  * | Adapter subprocess failure | Adapter-specific             |
 
 **Example**
 ```bash
 bash lib/dispatch.sh sd /tmp/extract/game1 games/game1
 ```
 
-**Exemptions**: stub adapter rc semantics (ftp/hdl/rclone) are not
+**Exemptions**: stub adapter rc semantics (ftp/rclone) are not
 frozen — see `adapters.md`.
 
 ### `_build_strip_args`
@@ -739,9 +742,9 @@ frozen — see `adapters.md`.
 _build_strip_args <keep_array_name>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | keep | string | Name of the `_*_ENV_VARS` array to preserve (e.g. `_FTP_ENV_VARS`). |
+| Position | Name | Type   | Constraint                                                          |
+| -------: | ---- | ------ | ------------------------------------------------------------------- |
+|       $1 | keep | string | Name of the `_*_ENV_VARS` array to preserve (e.g. `_FTP_ENV_VARS`). |
 
 **Returns**: `0` always.
 **Stdout**: silent.

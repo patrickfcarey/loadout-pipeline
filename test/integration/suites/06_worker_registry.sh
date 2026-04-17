@@ -26,7 +26,7 @@ done < <(
     source "$ROOT_DIR/lib/worker_registry.sh"
 
     worker_registry_init
-    worker_job_begin "$dead_pid" "$ORPHAN_JOB"
+    worker_job_begin "$dead_pid" "extract" "$ORPHAN_JOB"
 
     recovered=$(worker_registry_recover)
     if [[ "$recovered" == "$ORPHAN_JOB" ]]; then
@@ -70,7 +70,7 @@ done < <(
     source "$ROOT_DIR/lib/worker_registry.sh"
 
     worker_registry_init
-    worker_job_begin 12345 "$T13_JOB"
+    worker_job_begin 12345 "extract" "$T13_JOB"
     out=$(worker_registry_recover)
     if [[ "$out" == "$T13_JOB" ]]; then
         echo "PASS recover preserved double spaces byte-exact"

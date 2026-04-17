@@ -28,7 +28,7 @@ header "Setup: generating fixture archives"
 bash "$FIXTURES_DIR/create_fixtures.sh"
 
 while IFS= read -r line; do
-    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    [[ -z "$line" || "$line" =~ ^# || "$line" == '---JOBS---' || "$line" == '---END---' ]] && continue
     iso=$(job_line_archive "$line")
     if [[ -f "$iso" ]]; then
         pass "fixture archive ready: $iso"

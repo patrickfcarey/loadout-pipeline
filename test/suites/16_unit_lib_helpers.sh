@@ -3,7 +3,9 @@
 #
 # Unit tests for library helpers that had only end-to-end coverage before:
 #   H1  logging gate (DEBUG_IND=0 silences log_enter/debug/trace; level-always
-#        helpers log_info/warn/error remain visible)
+#        helpers log_info/warn/error remain visible; level 1 emits level-1
+#        helpers but gates level-2 helpers; level 2 emits log_cmd/log_var/
+#        log_fs/log_xtrace and shows rc= in the RETURN trap)
 #   H2  dispatch.sh _build_strip_args — per-adapter `env -u VAR` strip list
 #   H3  space.sh _space_apply_overhead — integer math including 0% and rounding
 #   H4  space.sh _space_avail_bytes — SPACE_AVAIL_OVERRIDE_BYTES honoured,
@@ -38,23 +40,28 @@ header "Test H1: logging gate (DEBUG_IND)"
 _u_run_subshell < <(
     source "$ROOT_DIR/lib/logging.sh"
 
-    # With DEBUG_IND unset/0, the three debug helpers must emit nothing on
-    # stderr. Capture stderr only — log_info goes to stdout so it does not
-    # pollute the capture even when it fires.
+    # With DEBUG_IND unset/0, every debug helper must emit nothing on stderr
+    # (level-1 and level-2 helpers alike). Capture stderr only — log_info
+    # goes to stdout so it does not pollute the capture even when it fires.
     out=$(DEBUG_IND=0 bash -c '
         source "'"$ROOT_DIR"'/lib/logging.sh"
         log_enter
         log_debug "x"
         log_trace "y"
+        log_cmd   rsync -a src/ dst/
+        _v=42 && log_var _v
+        log_fs    "mv a b"
+        log_xtrace "z"
     ' 2>&1)
     if [[ -z "$out" ]]; then
-        echo "PASS DEBUG_IND=0 silences log_enter/debug/trace"
+        echo "PASS DEBUG_IND=0 silences every debug helper"
     else
         echo "FAIL DEBUG_IND=0 leaked output: $out"
     fi
 
-    # With DEBUG_IND=1 they must all emit on stderr. Use a wrapper function so
-    # log_enter has something more interesting than 'main' as FUNCNAME[1].
+    # With DEBUG_IND=1 the level-1 helpers emit; the level-2 helpers stay
+    # silent. Use a wrapper function so log_enter has something more
+    # interesting than 'main' as FUNCNAME[1].
     out=$(DEBUG_IND=1 bash -c '
         source "'"$ROOT_DIR"'/lib/logging.sh"
         f() { log_enter; log_debug "hello"; }
@@ -67,6 +74,56 @@ _u_run_subshell < <(
         echo "PASS DEBUG_IND=1 emits log_enter/debug/trace"
     else
         echo "FAIL DEBUG_IND=1 did not emit all three: $out"
+    fi
+
+    # Level 1 must gate out level-2 helpers. log_cmd/log_var/log_fs/
+    # log_xtrace only fire at level 2. Without this gate, level 1 would
+    # become as chatty as level 2 and the two levels would collapse.
+    out=$(DEBUG_IND=1 bash -c '
+        source "'"$ROOT_DIR"'/lib/logging.sh"
+        log_cmd rsync -a src/ dst/
+        _v=42 && log_var _v
+        log_fs    "mv a b"
+        log_xtrace "z"
+    ' 2>&1)
+    if ! grep -q 'DEBUG2' <<< "$out"; then
+        echo "PASS DEBUG_IND=1 gates level-2 helpers"
+    else
+        echo "FAIL DEBUG_IND=1 leaked level-2 output: $out"
+    fi
+
+    # At level 2, every level-2 helper fires AND every level-1 helper
+    # still fires. Also the RETURN trap includes rc= so a non-zero exit
+    # is visible without grepping for it.
+    #
+    # Note: bash captures $? inside a RETURN trap from the last command
+    # executed in the function body, not from an explicit `return N`. So
+    # g() uses `false` as its final command to propagate rc=1 naturally.
+    # Using `return 7` instead would show rc=0 because the RETURN trap
+    # fires before the explicit return value becomes $?.
+    out=$(DEBUG_IND=2 bash -c '
+        _wrap() {
+            f() { log_enter "arg1 arg2"; log_cmd rsync -a src/ dst/; return 0; }
+            g() { log_enter; false; }
+            _v=hello; log_var _v
+            log_fs    "mv a b"
+            log_xtrace "raw2"
+            f
+            g || true
+        }
+        source "'"$ROOT_DIR"'/lib/logging.sh"
+        _wrap
+    ' 2>&1)
+    if grep -q '^\[DEBUG2\] cmd: rsync -a src/ dst/' <<< "$out" \
+       && grep -q '^\[DEBUG2\]   _wrap: _v=hello' <<< "$out" \
+       && grep -q '^\[DEBUG2\] fs: mv a b' <<< "$out" \
+       && grep -q '^\[DEBUG2\] raw2' <<< "$out" \
+       && grep -q '^\[DEBUG\] → f(arg1 arg2)' <<< "$out" \
+       && grep -q '^\[DEBUG\] ← f() rc=0' <<< "$out" \
+       && grep -q '^\[DEBUG\] ← g() rc=1' <<< "$out"; then
+        echo "PASS DEBUG_IND=2 emits level-2 helpers + rc-bearing RETURN trap"
+    else
+        echo "FAIL DEBUG_IND=2 missing expected output: $out"
     fi
 
     # log_info always prints to stdout, even with DEBUG_IND=0. log_warn and

@@ -156,10 +156,10 @@ worker_registry_init
 worker_job_begin <pid> <job>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | pid | integer | Must be `$BASHPID` of the current worker, **not** `$$` (see invariants). |
-| $2 | job | string | Full job line including the leading and trailing `~`. No newlines. |
+| Position | Name | Type    | Constraint                                                               |
+| -------: | ---- | ------- | ------------------------------------------------------------------------ |
+|       $1 | pid  | integer | Must be `$BASHPID` of the current worker, **not** `$$` (see invariants). |
+|       $2 | job  | string  | Full job line including the leading and trailing `~`. No newlines.       |
 
 **Returns**: `0` always.
 **Stdout**: silent.
@@ -220,9 +220,9 @@ worker_job_end "$BASHPID"
 worker_job_end <pid>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | pid | integer | Same `$BASHPID` that was passed to `worker_job_begin`. |
+| Position | Name | Type    | Constraint                                             |
+| -------: | ---- | ------- | ------------------------------------------------------ |
+|       $1 | pid  | integer | Same `$BASHPID` that was passed to `worker_job_begin`. |
 
 **Returns**: `0` always.
 **Stdout**: silent.

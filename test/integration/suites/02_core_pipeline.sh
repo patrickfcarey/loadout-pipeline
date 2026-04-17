@@ -9,11 +9,12 @@
 # ─── helper: build a scenario-local jobs file ───────────────────────────────
 _int_make_jobs() {
     local file="$1"; shift
-    : > "$file"
+    echo '---JOBS---' > "$file"
     while (( $# > 0 )); do
-        printf '~%s~\n' "$1" >> "$file"
+        echo "~$1~" >> "$file"
         shift
     done
+    echo '---END---' >> "$file"
 }
 
 # ─── helper: extract archive members to an "expected" tree ─────────────────
@@ -82,9 +83,13 @@ set -e
 
 assert_rc "$t3_rc" 0 "Test 3 pipeline rc"
 
+T3_EXP="$INT_STATE/t3_expected"
+rm -rf "$T3_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z" "$T3_EXP"
 for sub in a b c; do
-    assert_file_present "$INT_SD_VFAT/t3/$sub/small.iso" "Test 3 SD entry $sub"
+    assert_tree_eq "$T3_EXP" "$INT_SD_VFAT/t3/$sub" "Test 3 serial $sub on vfat"
 done
+rm -rf "$T3_EXP"
 
 # ─── Test 4: more workers than jobs (MAX_UNZIP=5, 2 jobs) ──────────────────
 
@@ -108,8 +113,13 @@ t4_rc=$?
 set -e
 
 assert_rc "$t4_rc" 0 "Test 4 pipeline rc"
-assert_file_present "$INT_SD_VFAT/t4/a/small.iso"  "Test 4 SD a"
-assert_file_present "$INT_SD_VFAT/t4/b/medium.iso" "Test 4 SD b"
+T4_EXP="$INT_STATE/t4_expected"
+rm -rf "$T4_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T4_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T4_EXP/medium"
+assert_tree_eq "$T4_EXP/small"  "$INT_SD_VFAT/t4/a" "Test 4 SD a on vfat"
+assert_tree_eq "$T4_EXP/medium" "$INT_SD_VFAT/t4/b" "Test 4 SD b on vfat"
+rm -rf "$T4_EXP"
 
 # Queue must be fully drained after a successful run.
 if [[ -d "$INT_QUEUE/t4" ]]; then
@@ -151,8 +161,13 @@ t4b_rc=$?
 set -e
 
 assert_rc "$t4b_rc" 0 "Test 4b pipeline rc (directory profile)"
-assert_file_present "$INT_SD_VFAT/t4b/small/small.iso"   "Test 4b SD small"
-assert_file_present "$INT_SD_VFAT/t4b/medium/medium.iso" "Test 4b SD medium"
+T4B_EXP="$INT_STATE/t4b_expected"
+rm -rf "$T4B_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T4B_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T4B_EXP/medium"
+assert_tree_eq "$T4B_EXP/small"  "$INT_SD_VFAT/t4b/small"  "Test 4b SD small on vfat"
+assert_tree_eq "$T4B_EXP/medium" "$INT_SD_VFAT/t4b/medium" "Test 4b SD medium on vfat"
+rm -rf "$T4B_EXP"
 
 # Negative: empty directory must fail load_jobs, not silently succeed.
 T4B_EMPTY="$INT_STATE/t4b_empty"
@@ -213,8 +228,12 @@ fi
 
 # wrapper_ok: iso must land at top level of the dispatch dir, and the
 # "MyGame" wrapper name must NOT appear on disk anywhere beneath it.
-assert_file_present "$INT_SD_VFAT/t4c/ok/wrapper_ok.iso" \
-    "Test 4c wrapper_ok flattened onto vfat"
+T4C_EXP="$INT_STATE/t4c_expected"
+rm -rf "$T4C_EXP"
+_int_decode_expected "$INT_FIXTURES/wrapper_ok.7z" "$T4C_EXP/ok"
+assert_file_eq "$T4C_EXP/ok/MyGame/wrapper_ok.iso" \
+    "$INT_SD_VFAT/t4c/ok/wrapper_ok.iso" \
+    "Test 4c wrapper_ok byte-exact on vfat"
 if [[ ! -e "$INT_SD_VFAT/t4c/ok/MyGame" ]]; then
     pass "Test 4c wrapper_ok: 'MyGame' wrapper dir absent under dispatch tree"
 else
@@ -222,8 +241,11 @@ else
 fi
 
 # wrapper_strip: iso present, Vimm's Lair.txt absent (strip-before-flatten).
-assert_file_present "$INT_SD_VFAT/t4c/strip/wrapper_strip.iso" \
-    "Test 4c wrapper_strip flattened onto vfat"
+_int_decode_expected "$INT_FIXTURES/wrapper_strip.7z" "$T4C_EXP/strip"
+assert_file_eq "$T4C_EXP/strip/MyGame/wrapper_strip.iso" \
+    "$INT_SD_VFAT/t4c/strip/wrapper_strip.iso" \
+    "Test 4c wrapper_strip byte-exact on vfat"
+rm -rf "$T4C_EXP"
 if [[ ! -e "$INT_SD_VFAT/t4c/strip/Vimm's Lair.txt" ]]; then
     pass "Test 4c wrapper_strip: strip-list file removed pre-flatten"
 else
@@ -240,4 +262,195 @@ if grep -F "cannot flatten wrapper for 'wrapper_ambig'" "$T4C_LOG" >/dev/null; t
     pass "Test 4c wrapper_ambig: flatten error logged"
 else
     fail "Test 4c wrapper_ambig: expected flatten error in pipeline log"
+fi
+
+# ─── Test 4d: custom QUEUE_DIR override ──────────────────────────────────
+
+header "Int Test 4d: custom QUEUE_DIR override on real substrate"
+
+T4D_QUEUE="$INT_STATE/t4d_queue"
+T4D_EXTRACT="$INT_EXTRACT/t4d"
+rm -rf "$T4D_QUEUE" "$T4D_EXTRACT" "$INT_SD_VFAT/t4d"
+mkdir -p "$T4D_EXTRACT"
+
+_int_make_jobs "$INT_STATE/t4d.jobs" \
+    "$INT_FIXTURES/small.7z|lvol|t4d/a" \
+    "$INT_FIXTURES/medium.7z|lvol|t4d/b"
+
+set +e
+EXTRACT_DIR="$T4D_EXTRACT" QUEUE_DIR="$T4D_QUEUE" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$INT_STATE/t4d.jobs" >"$INT_STATE/t4d.log" 2>&1
+t4d_rc=$?
+set -e
+
+assert_rc "$t4d_rc" 0 "Test 4d pipeline rc"
+
+T4D_EXP="$INT_STATE/t4d_expected"
+rm -rf "$T4D_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T4D_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T4D_EXP/medium"
+assert_tree_eq "$T4D_EXP/small"  "$INT_SD_VFAT/t4d/a" "Test 4d SD a on vfat"
+assert_tree_eq "$T4D_EXP/medium" "$INT_SD_VFAT/t4d/b" "Test 4d SD b on vfat"
+rm -rf "$T4D_EXP"
+
+assert_queue_empty "$T4D_QUEUE/extract"  "Test 4d custom extract queue"
+assert_queue_empty "$T4D_QUEUE/dispatch" "Test 4d custom dispatch queue"
+if [[ ! -d "$INT_QUEUE/t4d" ]]; then
+    pass "Test 4d default queue path not created"
+else
+    fail "Test 4d default queue path $INT_QUEUE/t4d exists (override ignored)"
+fi
+
+# ─── Test 4e: idempotent re-run on vfat ──────────────────────────────────
+
+header "Int Test 4e: idempotent re-run on real vfat substrate"
+
+T4E_EXTRACT="$INT_EXTRACT/t4e"
+rm -rf "$T4E_EXTRACT" "$INT_SD_VFAT/t4e"
+mkdir -p "$T4E_EXTRACT"
+
+_int_make_jobs "$INT_STATE/t4e.jobs" \
+    "$INT_FIXTURES/small.7z|lvol|t4e/a" \
+    "$INT_FIXTURES/medium.7z|lvol|t4e/b"
+
+set +e
+EXTRACT_DIR="$T4E_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4e" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$INT_STATE/t4e.jobs" >"$INT_STATE/t4e_run1.log" 2>&1
+t4e_run1_rc=$?
+set -e
+
+assert_rc "$t4e_run1_rc" 0 "Test 4e run 1 pipeline rc"
+
+T4E_EXP="$INT_STATE/t4e_expected"
+rm -rf "$T4E_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T4E_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T4E_EXP/medium"
+assert_tree_eq "$T4E_EXP/small"  "$INT_SD_VFAT/t4e/a" "Test 4e run 1 SD a"
+assert_tree_eq "$T4E_EXP/medium" "$INT_SD_VFAT/t4e/b" "Test 4e run 1 SD b"
+
+t4e_mtime_a=$(stat -c '%Y' "$INT_SD_VFAT/t4e/a/small.iso")
+t4e_mtime_b=$(stat -c '%Y' "$INT_SD_VFAT/t4e/b/medium.iso")
+
+# vfat mtime granularity is 2s — sleep past it so any rewrite is visible.
+sleep 3
+
+set +e
+EXTRACT_DIR="$T4E_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4e" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+RESUME_PLANNER_IND=0 \
+bash "$PIPELINE" "$INT_STATE/t4e.jobs" >"$INT_STATE/t4e_run2.log" 2>&1
+t4e_run2_rc=$?
+set -e
+
+assert_rc "$t4e_run2_rc" 0 "Test 4e run 2 pipeline rc"
+assert_tree_eq "$T4E_EXP/small"  "$INT_SD_VFAT/t4e/a" "Test 4e run 2 SD a intact"
+assert_tree_eq "$T4E_EXP/medium" "$INT_SD_VFAT/t4e/b" "Test 4e run 2 SD b intact"
+rm -rf "$T4E_EXP"
+
+assert_mtime_unchanged "$INT_SD_VFAT/t4e/a/small.iso"  "$t4e_mtime_a" "Test 4e mtime a"
+assert_mtime_unchanged "$INT_SD_VFAT/t4e/b/medium.iso" "$t4e_mtime_b" "Test 4e mtime b"
+
+if grep -qF '[skip]' "$INT_STATE/t4e_run2.log"; then
+    pass "Test 4e run 2 logged [skip]"
+else
+    fail "Test 4e run 2 did not log [skip]"
+fi
+
+# ─── Test 4f: custom EXTRACT_DIR override ────────────────────────────────
+
+header "Int Test 4f: custom EXTRACT_DIR override on real substrate"
+
+T4F_EXTRACT="$INT_EXTRACT/t4f_custom"
+rm -rf "$T4F_EXTRACT" "$INT_SD_VFAT/t4f"
+mkdir -p "$T4F_EXTRACT"
+
+_int_make_jobs "$INT_STATE/t4f.jobs" \
+    "$INT_FIXTURES/small.7z|lvol|t4f/a" \
+    "$INT_FIXTURES/medium.7z|lvol|t4f/b"
+
+set +e
+EXTRACT_DIR="$T4F_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4f" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$INT_STATE/t4f.jobs" >"$INT_STATE/t4f.log" 2>&1
+t4f_rc=$?
+set -e
+
+assert_rc "$t4f_rc" 0 "Test 4f pipeline rc"
+
+T4F_EXP="$INT_STATE/t4f_expected"
+rm -rf "$T4F_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T4F_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T4F_EXP/medium"
+assert_tree_eq "$T4F_EXP/small"  "$INT_SD_VFAT/t4f/a" "Test 4f SD a on vfat"
+assert_tree_eq "$T4F_EXP/medium" "$INT_SD_VFAT/t4f/b" "Test 4f SD b on vfat"
+rm -rf "$T4F_EXP"
+
+if [[ ! -d "$INT_EXTRACT/t4f" ]]; then
+    pass "Test 4f default extract path not created"
+else
+    fail "Test 4f default extract path $INT_EXTRACT/t4f exists (override ignored)"
+fi
+
+# ─── Test 4g: wrapper flatten — inner strip + two-dir ambiguity ──────────
+#
+# Two additional wrapper-flatten scenarios not covered by Test 4c:
+#   wrapper_inner_strip.7z — strip-list file is INSIDE the wrapper dir
+#   wrapper_two_dirs.7z    — two top-level directories (ambiguous)
+
+header "Int Test 4g: wrapper flatten — inner strip + two-dir ambiguity"
+
+T4G_EXTRACT="$INT_EXTRACT/t4g"
+rm -rf "$T4G_EXTRACT" "$INT_SD_VFAT/t4g"
+mkdir -p "$T4G_EXTRACT"
+
+_int_make_jobs "$INT_STATE/t4g.jobs" \
+    "$INT_FIXTURES/wrapper_inner_strip.7z|lvol|t4g/inner" \
+    "$INT_FIXTURES/wrapper_two_dirs.7z|lvol|t4g/twodirs"
+
+T4G_LOG="$INT_STATE/t4g.log"
+set +e
+EXTRACT_DIR="$T4G_EXTRACT" QUEUE_DIR="$INT_QUEUE/t4g" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$INT_STATE/t4g.jobs" >"$T4G_LOG" 2>&1
+t4g_rc=$?
+set -e
+
+# Overall rc must be non-zero because wrapper_two_dirs fails permanently.
+if (( t4g_rc != 0 )); then
+    pass "Test 4g pipeline reported failure for two-dir wrapper (rc=$t4g_rc)"
+else
+    fail "Test 4g pipeline returned 0 despite ambiguous two-dir wrapper"
+fi
+
+# wrapper_inner_strip: iso at top level, strip-list file gone, wrapper gone.
+T4G_EXP="$INT_STATE/t4g_expected"
+rm -rf "$T4G_EXP"
+_int_decode_expected "$INT_FIXTURES/wrapper_inner_strip.7z" "$T4G_EXP/inner"
+assert_file_eq "$T4G_EXP/inner/MyGame/wrapper_inner_strip.iso" \
+    "$INT_SD_VFAT/t4g/inner/wrapper_inner_strip.iso" \
+    "Test 4g inner_strip byte-exact on vfat"
+rm -rf "$T4G_EXP"
+if [[ ! -e "$INT_SD_VFAT/t4g/inner/Vimm's Lair.txt" ]]; then
+    pass "Test 4g inner_strip: strip-list file removed post-flatten"
+else
+    fail "Test 4g inner_strip: Vimm's Lair.txt leaked to dispatch destination"
+fi
+if [[ ! -e "$INT_SD_VFAT/t4g/inner/MyGame" ]]; then
+    pass "Test 4g inner_strip: wrapper dir absent"
+else
+    fail "Test 4g inner_strip: MyGame wrapper dir still present"
+fi
+
+# wrapper_two_dirs: nothing dispatched, flatten error in log.
+if [[ ! -e "$INT_SD_VFAT/t4g/twodirs" ]]; then
+    pass "Test 4g two_dirs: ambiguous job did NOT dispatch"
+else
+    fail "Test 4g two_dirs: unexpected content at $INT_SD_VFAT/t4g/twodirs"
+fi
+if grep -F "cannot flatten wrapper for 'wrapper_two_dirs'" "$T4G_LOG" >/dev/null; then
+    pass "Test 4g two_dirs: flatten error logged"
+else
+    fail "Test 4g two_dirs: expected flatten error in pipeline log"
 fi

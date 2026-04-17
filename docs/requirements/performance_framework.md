@@ -27,9 +27,9 @@ separated from `lib/` — production code never sources it. It provides:
 perf_sample_cpu <state_file>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | state_file | path | Per-sampler state cookie. Any writable path. |
+| Position | Name       | Type | Constraint                                   |
+| -------: | ---------- | ---- | -------------------------------------------- |
+|       $1 | state_file | path | Per-sampler state cookie. Any writable path. |
 
 **Returns**: `0` always.
 **Stdout**: `<cpu_pct> <iowait_pct>\n` — both 0..100 integers.
@@ -77,10 +77,10 @@ read cpu iowait < <(perf_sample_cpu /tmp/state_cpu)
 perf_sample_disk <state_file> <device>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | state_file | path | Per-sampler state cookie. |
-| $2 | device | string | Block device basename as in `/proc/diskstats` (e.g. `sda`, `nvme0n1`). |
+| Position | Name       | Type   | Constraint                                                             |
+| -------: | ---------- | ------ | ---------------------------------------------------------------------- |
+|       $1 | state_file | path   | Per-sampler state cookie.                                              |
+|       $2 | device     | string | Block device basename as in `/proc/diskstats` (e.g. `sda`, `nvme0n1`). |
 
 **Returns**: `0` always.
 **Stdout**: `<read_mbps> <write_mbps>\n` — integer MB/s.
@@ -127,9 +127,9 @@ read rmbps wmbps < <(perf_sample_disk /tmp/state_disk sda)
 perf_sample_queue <qdir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | qdir | absolute path | Queue directory to probe. |
+| Position | Name | Type          | Constraint                |
+| -------: | ---- | ------------- | ------------------------- |
+|       $1 | qdir | absolute path | Queue directory to probe. |
 
 **Returns**: `0` always.
 **Stdout**: `<depth>\n` — integer count of `.job` files.
@@ -169,10 +169,10 @@ q=$(perf_sample_queue "$DISPATCH_QUEUE_DIR")
 perf_sample_space_retries <state_file> <log_file>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | state_file | path | Per-sampler state cookie. |
-| $2 | log_file | path | Pipeline log file to scan. |
+| Position | Name       | Type | Constraint                 |
+| -------: | ---------- | ---- | -------------------------- |
+|       $1 | state_file | path | Per-sampler state cookie.  |
+|       $2 | log_file   | path | Pipeline log file to scan. |
 
 **Returns**: `0` always.
 **Stdout**: `<delta_lines>\n` — integer new "space reservation"
@@ -264,17 +264,17 @@ bash tools/perf/perf_metrics.sh --self-test
 perf_recommend_workers <cur_u> <cur_d> <cpu_pct> <iowait_pct> <idle_pct> <retry_pct> <q_depth> <cap_u> <cap_d>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | cur_u | integer | Current MAX_UNZIP. |
-| $2 | cur_d | integer | Current MAX_DISPATCH. |
-| $3 | cpu_pct | integer | 0..100, user+nice+system CPU share. |
-| $4 | iowait_pct | integer | 0..100, iowait CPU share. |
-| $5 | idle_pct | integer | 0..100, fraction of workers observed idle. |
-| $6 | retry_pct | integer | 0..100, space-reservation retry rate. |
-| $7 | q_depth | integer | Dispatch queue depth (pending jobs). |
-| $8 | cap_u | integer | Hard maximum for MAX_UNZIP. |
-| $9 | cap_d | integer | Hard maximum for MAX_DISPATCH. |
+| Position | Name       | Type    | Constraint                                 |
+| -------: | ---------- | ------- | ------------------------------------------ |
+|       $1 | cur_u      | integer | Current MAX_UNZIP.                         |
+|       $2 | cur_d      | integer | Current MAX_DISPATCH.                      |
+|       $3 | cpu_pct    | integer | 0..100, user+nice+system CPU share.        |
+|       $4 | iowait_pct | integer | 0..100, iowait CPU share.                  |
+|       $5 | idle_pct   | integer | 0..100, fraction of workers observed idle. |
+|       $6 | retry_pct  | integer | 0..100, space-reservation retry rate.      |
+|       $7 | q_depth    | integer | Dispatch queue depth (pending jobs).       |
+|       $8 | cap_u      | integer | Hard maximum for MAX_UNZIP.                |
+|       $9 | cap_d      | integer | Hard maximum for MAX_DISPATCH.             |
 
 **Returns**: `0` always.
 **Stdout**: `<new_u> <new_d>\n` — recommended worker counts.
@@ -288,13 +288,13 @@ perf_recommend_workers <cur_u> <cur_d> <cpu_pct> <iowait_pct> <idle_pct> <retry_
 
 - **Rule set** (Pareto, evaluated top-down via `elif` chain):
 
-  | # | Condition | Effect |
-  |---:|---|---|
-  | 1 | `retry_pct > 10` | unzip −1 |
-  | 2 | `cpu_pct < 60 AND iowait_pct < 20 AND idle_pct < 30` | unzip +1 |
-  | 3 | `idle_pct >= 60` | unzip −1 |
-  | 4 | `q_depth > cur_d*2 AND iowait_pct < 40` | dispatch +1 |
-  | 5 | `idle_pct >= 60 AND q_depth < cur_d` | dispatch −1 |
+| # | Condition                                            | Effect      |
+| --: | ---------------------------------------------------- | ----------- |
+| 1 | `retry_pct > 10`                                     | unzip −1    |
+| 2 | `cpu_pct < 60 AND iowait_pct < 20 AND idle_pct < 30` | unzip +1    |
+| 3 | `idle_pct >= 60`                                     | unzip −1    |
+| 4 | `q_depth > cur_d*2 AND iowait_pct < 40`              | dispatch +1 |
+| 5 | `idle_pct >= 60 AND q_depth < cur_d`                 | dispatch −1 |
 
 - **Priority**: rule 1 beats rule 2 in the `elif` chain. Space
   retries are the single most expensive waste mode (spool bloat +
@@ -376,12 +376,12 @@ bash tools/perf/perf_harness.sh [--smoke] [--combos "UxD,UxD,..."] \
                                 [--archives <dir>] [--out <dir>]
 ```
 
-| Flag | Purpose |
-|---|---|
-| `--smoke` | Use built-in smoke fixtures (3 tiny .7z files under `test/fixtures/isos`). Default when no `--archives` given. |
-| `--combos "..."` | Comma-separated `UxD` pairs. Overrides smoke defaults if both given. |
-| `--archives <dir>` | Directory of `.7z` archives as the fixture set. |
-| `--out <dir>` | Output directory. Default: `/tmp/perf_out_<pid>`. |
+| Flag               | Purpose                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `--smoke`          | Use built-in smoke fixtures (3 tiny .7z files under `test/fixtures/isos`). Default when no `--archives` given. |
+| `--combos "..."`   | Comma-separated `UxD` pairs. Overrides smoke defaults if both given.                                           |
+| `--archives <dir>` | Directory of `.7z` archives as the fixture set.                                                                |
+| `--out <dir>`      | Output directory. Default: `/tmp/perf_out_<pid>`.                                                              |
 
 **Env dependencies**: none — all pipeline env vars are set per-combo
 via `env` before each subprocess. `ALLOW_STUB_ADAPTERS=1` and
@@ -389,11 +389,11 @@ via `env` before each subprocess. `ALLOW_STUB_ADAPTERS=1` and
 
 **Returns**:
 
-| rc | Meaning |
-|---:|---|
-| `0` | Every combo ran; CSV + report produced. |
-| `2` | CLI usage error. |
-| `3` | Preflight failure (missing fixtures, missing pipeline entry point). |
+|  rc | Meaning                                                                 |
+| --: | ----------------------------------------------------------------------- |
+| `0` | Every combo ran; CSV + report produced.                                 |
+| `2` | CLI usage error.                                                        |
+| `3` | Preflight failure (missing fixtures, missing pipeline entry point).     |
 | `4` | One or more combos failed with non-zero rc; CSV + report still written. |
 
 **Output files** (inside `--out`):
@@ -441,10 +441,10 @@ cat /tmp/perf/report.md
 bash tools/perf/perf_report.sh <results.csv> <out_dir>
 ```
 
-| Position | Name | Type | Constraint |
-|---:|---|---|---|
-| $1 | csv_path | path | CSV written by `perf_harness.sh`. |
-| $2 | out_dir | path | Existing directory for report files. |
+| Position | Name     | Type | Constraint                           |
+| -------: | -------- | ---- | ------------------------------------ |
+|       $1 | csv_path | path | CSV written by `perf_harness.sh`.    |
+|       $2 | out_dir  | path | Existing directory for report files. |
 
 **Returns**: `0` on success, `1` on missing CSV or empty data, `2` on usage error.
 **Stdout**: `[report] wrote ...` lines.

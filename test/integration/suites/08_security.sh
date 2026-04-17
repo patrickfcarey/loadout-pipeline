@@ -23,7 +23,7 @@ done < <(
     source "$ROOT_DIR/lib/jobs.sh"
 
     # Case A: mid-string traversal in destination.
-    printf '%s\n' "~/abs/path/game.7z|lvol|games/../../../etc/passwd~" > "$T19_JOBS"
+    { echo '---JOBS---'; echo "~/abs/path/game.7z|lvol|games/../../../etc/passwd~"; echo '---END---'; } > "$T19_JOBS"
     JOBS=()
     if load_jobs "$T19_JOBS" 2>/dev/null; then
         echo "FAIL mid-string traversal in destination was NOT rejected"
@@ -32,7 +32,7 @@ done < <(
     fi
 
     # Case B: mid-string traversal in iso path.
-    printf '%s\n' "~/abs/../etc/passwd.7z|lvol|games/game1~" > "$T19_JOBS"
+    { echo '---JOBS---'; echo "~/abs/../etc/passwd.7z|lvol|games/game1~"; echo '---END---'; } > "$T19_JOBS"
     JOBS=()
     if load_jobs "$T19_JOBS" 2>/dev/null; then
         echo "FAIL mid-string traversal in iso path was NOT rejected"
@@ -41,7 +41,7 @@ done < <(
     fi
 
     # Case C: legitimate dots in filenames must still pass.
-    printf '%s\n' "~/abs/path/game.v1.7z|lvol|games/game.v1~" > "$T19_JOBS"
+    { echo '---JOBS---'; echo "~/abs/path/game.v1.7z|lvol|games/game.v1~"; echo '---END---'; } > "$T19_JOBS"
     JOBS=()
     if load_jobs "$T19_JOBS" 2>/dev/null; then
         echo "PASS legitimate dotted filename accepted"
@@ -51,7 +51,7 @@ done < <(
 
     # Case D: basename-`.` pathological input — "/..7z" strips to "." after
     # `basename "/..7z" ".7z"`. Must be rejected by the archive-basename guard.
-    printf '%s\n' "~/..7z|lvol|games/game1~" > "$T19_JOBS"
+    { echo '---JOBS---'; echo "~/..7z|lvol|games/game1~"; echo '---END---'; } > "$T19_JOBS"
     JOBS=()
     if load_jobs "$T19_JOBS" 2>/dev/null; then
         echo "FAIL '/..7z' (basename='.') was NOT rejected"

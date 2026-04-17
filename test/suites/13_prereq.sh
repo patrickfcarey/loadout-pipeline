@@ -262,10 +262,12 @@ P5_RC=0
 # resolves — everything else the pipeline shells out to must be missing.
 P5_FAKE_BIN="/tmp/lp_prereq_p5_bin_$$"
 mkdir -p "$P5_FAKE_BIN"
-# Provide just enough for the entrypoint's own boot lines to run: bash itself
-# and dirname (used by `ROOT_DIR=$(dirname "${BASH_SOURCE[0]}")/..`). Every
-# other required command is deliberately absent so check_prerequisites fires.
-for _cmd in bash dirname; do
+# Provide just enough for the entrypoint's own boot lines to run: bash itself,
+# dirname (used by ROOT_DIR resolution), and the handful of coreutils the
+# bundled dist needs during its preamble (basename, mktemp, cat, rm, grep, sed).
+# Everything the pipeline's check_prerequisites actually tests (7z, flock, etc.)
+# is deliberately absent so the preflight check fires.
+for _cmd in bash dirname basename mktemp cat rm grep sed; do
     ln -sf "$(command -v "$_cmd")" "$P5_FAKE_BIN/$_cmd"
 done
 PATH="$P5_FAKE_BIN" bash "$PIPELINE" "$TEST_JOBS" >"$P5_LOG" 2>&1 || P5_RC=$?

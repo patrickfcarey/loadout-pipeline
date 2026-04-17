@@ -321,7 +321,7 @@ _u_run_subshell < <(
     fi
 
     # Round trip: begin writes a line, end removes it.
-    worker_job_begin 11111 "~/a/game.7z|lvol|d~"
+    worker_job_begin 11111 "extract" "~/a/game.7z|lvol|d~"
     if grep -q "^11111 " "$reg"; then
         echo "PASS begin wrote pid entry"
     else
@@ -342,8 +342,8 @@ _u_run_subshell < <(
     fi
 
     # Double-begin for the same pid: the second call must replace the first.
-    worker_job_begin 22222 "~/a/first.7z|lvol|d~"
-    worker_job_begin 22222 "~/a/second.7z|lvol|d~"
+    worker_job_begin 22222 "extract" "~/a/first.7z|lvol|d~"
+    worker_job_begin 22222 "extract" "~/a/second.7z|lvol|d~"
     entries=$(grep -c "^22222 " "$reg")
     if [[ "$entries" -eq 1 ]]; then
         echo "PASS double-begin produced exactly one entry"
@@ -367,7 +367,7 @@ _u_run_subshell < <(
 
     # Consecutive-spaces regression guard (documented in worker_registry.sh).
     spaces_job="~/games/Two  Spaces  Game.7z|lvol|dest~"
-    worker_job_begin 33333 "$spaces_job"
+    worker_job_begin 33333 "extract" "$spaces_job"
     out=$(worker_registry_recover)
     if [[ "$out" == "$spaces_job" ]]; then
         echo "PASS consecutive-space job path preserved through recover"

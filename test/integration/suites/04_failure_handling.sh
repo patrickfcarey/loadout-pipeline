@@ -26,7 +26,7 @@ mkdir -p "$T8_DIR" "$T8_COPY" "$T8_EXTRACT"
 # the EXIT trap a real failure to clean up.
 head -c 128 "$INT_FIXTURES/small.7z" > "$T8_BAD"
 
-printf '~%s|lvol|t8/bad~\n' "$T8_BAD" > "$T8_JOBS"
+{ echo '---JOBS---'; echo "~$T8_BAD|lvol|t8/bad~"; echo '---END---'; } > "$T8_JOBS"
 
 set +e
 MAX_UNZIP=1 \
@@ -84,12 +84,13 @@ mkdir -p "$T9_DIR" "$T9_COPY" "$T9_EXTRACT"
 
 # Use the large archive so the 7z process has enough runtime for the
 # watcher to find and kill it before extraction completes.
-printf '~%s/large.7z|lvol|t9/large~\n' "$INT_FIXTURES" > "$T9_JOBS"
+{ echo '---JOBS---'; echo "~$INT_FIXTURES/large.7z|lvol|t9/large~"; echo '---END---'; } > "$T9_JOBS"
 
 # Fire a watcher that kills 7z ~0.2s after it first appears. Real SIGKILL
 # on 7z: extract.sh sees the child die and exits non-zero, but its own
 # process is killed too because 7z sends SIGPIPE back through.
-watcher_pid=$(inject_sigkill_after "^7z" 0.2)
+T9_SENTINEL="$T9_DIR/.sigkill_fired"
+watcher_pid=$(inject_sigkill_after "^7z" 0.2 "$T9_SENTINEL")
 
 set +e
 MAX_UNZIP=1 \
@@ -103,13 +104,14 @@ set -e
 
 wait "$watcher_pid" 2>/dev/null || true
 
-if (( t9_rc != 0 )); then
-    pass "Test 9: pipeline rc=$t9_rc (non-zero after SIGKILL on 7z)"
+if [[ -f "$T9_SENTINEL" ]]; then
+    if (( t9_rc != 0 )); then
+        pass "Test 9: pipeline rc=$t9_rc (non-zero after SIGKILL on 7z)"
+    else
+        fail "Test 9: SIGKILL delivered but pipeline returned 0"
+    fi
 else
-    # A killed 7z doesn't always propagate to rc≠0 if extraction had already
-    # finished by the time the watcher fired. Treat a zero rc as the "no
-    # crash occurred" case and skip the rest of the checks with a warning.
-    pass "Test 9: 7z finished before watcher fired (no crash to recover)"
+    echo -e "  ${DIM}[SKIP]${RESET} Test 9: 7z finished before watcher could deliver SIGKILL"
 fi
 
 # Rerun with real state — no watcher this time. The pipeline must recover.
@@ -130,3 +132,76 @@ rm -rf "$T9_EXP"
 mkdir -p "$T9_EXP"
 ( cd "$T9_EXP" && 7z x -y "$INT_FIXTURES/large.7z" >/dev/null )
 assert_tree_eq "$T9_EXP" "$INT_SD_VFAT/t9/large" "Test 9 final vfat tree"
+
+# ─── Test 9b: rerun after corrupt archive recovers on vfat ──────────────
+#
+# Run 1: one corrupt archive + one good archive. The pipeline must fail
+# (corrupt job) but the good job may or may not complete. Run 2: replace
+# the corrupt archive with a valid one and re-run without cleaning state.
+# The pipeline must recover and produce correct output for both jobs.
+
+header "Int Test 9b: rerun after corrupt archive recovers on vfat"
+
+T9B_DIR="$INT_STATE/t9b"
+T9B_COPY="$T9B_DIR/copy"
+T9B_EXTRACT="$T9B_DIR/extract"
+T9B_QUEUE="$INT_QUEUE/t9b"
+T9B_JOBS="$T9B_DIR/t9b.jobs"
+T9B_BAD="$T9B_DIR/bad.7z"
+rm -rf "$T9B_DIR" "$INT_SD_VFAT/t9b"
+mkdir -p "$T9B_DIR" "$T9B_COPY" "$T9B_EXTRACT"
+
+head -c 128 "$INT_FIXTURES/small.7z" > "$T9B_BAD"
+
+_int_make_jobs "$T9B_JOBS" \
+    "$T9B_BAD|lvol|t9b/bad" \
+    "$INT_FIXTURES/medium.7z|lvol|t9b/good"
+
+set +e
+MAX_UNZIP=1 \
+COPY_DIR="$T9B_COPY" \
+EXTRACT_DIR="$T9B_EXTRACT" \
+QUEUE_DIR="$T9B_QUEUE" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$T9B_JOBS" >"$INT_STATE/t9b_run1.log" 2>&1
+t9b_run1_rc=$?
+set -e
+
+if (( t9b_run1_rc != 0 )); then
+    pass "Test 9b run 1: rc=$t9b_run1_rc (non-zero on corrupt archive)"
+else
+    fail "Test 9b run 1: pipeline returned 0 despite corrupt archive"
+fi
+
+# Fix: replace the corrupt archive with a valid one and rebuild jobs.
+cp "$INT_FIXTURES/small.7z" "$T9B_BAD"
+_int_make_jobs "$T9B_JOBS" \
+    "$T9B_BAD|lvol|t9b/bad" \
+    "$INT_FIXTURES/medium.7z|lvol|t9b/good"
+
+set +e
+MAX_UNZIP=1 \
+COPY_DIR="$T9B_COPY" \
+EXTRACT_DIR="$T9B_EXTRACT" \
+QUEUE_DIR="$T9B_QUEUE" \
+LVOL_MOUNT_POINT="$INT_SD_VFAT" \
+bash "$PIPELINE" "$T9B_JOBS" >"$INT_STATE/t9b_run2.log" 2>&1
+t9b_run2_rc=$?
+set -e
+
+assert_rc "$t9b_run2_rc" 0 "Test 9b run 2 pipeline rc"
+
+T9B_EXP="$INT_STATE/t9b_expected"
+rm -rf "$T9B_EXP"
+_int_decode_expected "$INT_FIXTURES/small.7z"  "$T9B_EXP/small"
+_int_decode_expected "$INT_FIXTURES/medium.7z" "$T9B_EXP/medium"
+assert_tree_eq "$T9B_EXP/small"  "$INT_SD_VFAT/t9b/bad"  "Test 9b rerun bad-now-fixed on vfat"
+assert_tree_eq "$T9B_EXP/medium" "$INT_SD_VFAT/t9b/good" "Test 9b rerun good on vfat"
+rm -rf "$T9B_EXP"
+
+scratch=$(find "$T9B_COPY" -name '*.7z.*' 2>/dev/null | wc -l)
+if (( scratch == 0 )); then
+    pass "Test 9b: no scratch copies left"
+else
+    fail "Test 9b: $scratch scratch file(s) leaked under $T9B_COPY"
+fi

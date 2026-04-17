@@ -312,13 +312,19 @@ mkdir -p "$C7_DIR"
 # Create files in REVERSE order so readdir's native order differs from
 # alphabetical; load_jobs must re-sort them to a,b,c.
 cat > "$C7_DIR/c.jobs" <<'EOF'
+---JOBS---
 ~/iso/game_c.7z|lvol|dest/c~
+---END---
 EOF
 cat > "$C7_DIR/b.jobs" <<'EOF'
+---JOBS---
 ~/iso/game_b.7z|lvol|dest/b~
+---END---
 EOF
 cat > "$C7_DIR/a.jobs" <<'EOF'
+---JOBS---
 ~/iso/game_a.7z|lvol|dest/a~
+---END---
 EOF
 
 C7_OUT=$(bash -c '
@@ -353,7 +359,7 @@ rm -rf "$C7_DIR"
 header "Test C8: load_jobs rejects Unicode iso path"
 
 C8_FILE="/tmp/lp_unit_c8_$$.jobs"
-printf '~/\xe3\x82\xb2\xe3\x83\xbc\xe3\x83\xa0/game.7z|lvol|games/g~\n' > "$C8_FILE"
+{ echo '---JOBS---'; printf '~/\xe3\x82\xb2\xe3\x83\xbc\xe3\x83\xa0/game.7z|lvol|games/g~\n'; echo '---END---'; } > "$C8_FILE"
 
 C8_RC=0
 C8_LOG=$(mktemp)
@@ -376,3 +382,103 @@ fi
 
 rm -f "$C8_FILE"
 rm -f "$C8_LOG"
+
+# =============================================================================
+# C9 — DEBUG_IND accepts 0|1|2 and rejects everything else
+# =============================================================================
+#
+# DEBUG_IND is gated by an enum-style case in lib/config.sh: only the
+# literal values 0, 1, and 2 are valid. Anything else — "true", "yes", "3",
+# or a typo like "debug" — must fail preflight with rc=2 so an operator
+# asking for debug output gets debug output or a clear error. A silent
+# degrade to level 0 would defeat the point of asking for a specific
+# verbosity.
+
+header "Test C9: DEBUG_IND validation"
+
+# Sub-case A: =0 accepted.
+C9A_ROOT="$(_c_make_root 'DEBUG_IND=0
+MAX_UNZIP=2
+MAX_DISPATCH=2
+MAX_RECOVERY_ATTEMPTS=3
+DISPATCH_POLL_INITIAL_MS=50
+DISPATCH_POLL_MAX_MS=500
+')"
+C9A_RC=0
+ROOT_DIR="$C9A_ROOT" bash -c '
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/config.sh"
+' >/dev/null 2>&1 || C9A_RC=$?
+if (( C9A_RC == 0 )); then
+    pass "DEBUG_IND=0 accepted"
+else
+    fail "DEBUG_IND=0 unexpectedly rejected (rc=$C9A_RC)"
+fi
+rm -rf "$C9A_ROOT"
+
+# Sub-case B: =2 accepted.
+C9B_ROOT="$(_c_make_root 'DEBUG_IND=2
+MAX_UNZIP=2
+MAX_DISPATCH=2
+MAX_RECOVERY_ATTEMPTS=3
+DISPATCH_POLL_INITIAL_MS=50
+DISPATCH_POLL_MAX_MS=500
+')"
+C9B_RC=0
+ROOT_DIR="$C9B_ROOT" bash -c '
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/config.sh"
+' >/dev/null 2>&1 || C9B_RC=$?
+if (( C9B_RC == 0 )); then
+    pass "DEBUG_IND=2 accepted"
+else
+    fail "DEBUG_IND=2 unexpectedly rejected (rc=$C9B_RC)"
+fi
+rm -rf "$C9B_ROOT"
+
+# Sub-case C: =3 rejected (out of range) with rc=2 + named var in error.
+C9C_ROOT="$(_c_make_root 'DEBUG_IND=3
+MAX_UNZIP=2
+MAX_DISPATCH=2
+MAX_RECOVERY_ATTEMPTS=3
+DISPATCH_POLL_INITIAL_MS=50
+DISPATCH_POLL_MAX_MS=500
+')"
+C9C_RC=0
+C9C_LOG=$(mktemp)
+ROOT_DIR="$C9C_ROOT" bash -c '
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/config.sh"
+' >"$C9C_LOG" 2>&1 || C9C_RC=$?
+if (( C9C_RC == 2 )); then
+    pass "DEBUG_IND=3 rejected with rc=2"
+else
+    fail "DEBUG_IND=3 unexpectedly accepted (rc=$C9C_RC)"
+fi
+if grep -q 'DEBUG_IND' "$C9C_LOG"; then
+    pass "DEBUG_IND=3 error names the var"
+else
+    fail "DEBUG_IND=3 error did not name the var: $(cat "$C9C_LOG")"
+fi
+rm -rf "$C9C_ROOT"
+rm -f "$C9C_LOG"
+
+# Sub-case D: =true rejected (non-numeric typo) with rc=2.
+C9D_ROOT="$(_c_make_root 'DEBUG_IND=true
+MAX_UNZIP=2
+MAX_DISPATCH=2
+MAX_RECOVERY_ATTEMPTS=3
+DISPATCH_POLL_INITIAL_MS=50
+DISPATCH_POLL_MAX_MS=500
+')"
+C9D_RC=0
+ROOT_DIR="$C9D_ROOT" bash -c '
+    source "$ROOT_DIR/lib/logging.sh"
+    source "$ROOT_DIR/lib/config.sh"
+' >/dev/null 2>&1 || C9D_RC=$?
+if (( C9D_RC == 2 )); then
+    pass "DEBUG_IND=true rejected with rc=2"
+else
+    fail "DEBUG_IND=true unexpectedly accepted (rc=$C9D_RC)"
+fi
+rm -rf "$C9D_ROOT"
