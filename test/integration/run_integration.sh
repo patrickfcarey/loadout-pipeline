@@ -62,43 +62,23 @@ export LVOL_MOUNT_POINT="$INT_SD_VFAT"
 # braces: keep them allowed.
 export ALLOW_STUB_ADAPTERS=1
 
-# ── suites (sourced in order, all share this shell's PASS/FAIL counters) ─────
+# ── inter-suite cleanup ─────────────────────────────────────────────────────
+_int_inter_suite_cleanup() {
+    rm -rf "${INT_EXTRACT:?}"/* "${INT_QUEUE:?}"/*
+}
 
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/01_prerequisites.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/02_core_pipeline.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/03_precheck.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/04_failure_handling.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/05_space_ledger.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/06_worker_registry.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/07_adapters.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/08_security.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/09_real_archive.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/10_regression.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/11_negative.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/12_docker_pipeline.sh"
-# shellcheck source=/dev/null
-source "$INT_ROOT/suites/13_resume_planner.sh"
+# ── suites (sourced in order, all share this shell's PASS/FAIL counters) ─────
+for _suite in "$INT_ROOT"/suites/[0-9][0-9]_*.sh; do
+    _int_inter_suite_cleanup
+    # shellcheck source=/dev/null
+    source "$_suite"
+done
+unset _suite
 
 # ── summary ──────────────────────────────────────────────────────────────────
 _print_summary
 
 # Note for the operator:
-#
-#   Suite 07: three stub-adapter scenarios (ftp, hdl_dump, rclone) are
-#   expected to FAIL until real implementations land. They are intentionally
-#   hard-failing — see test/integration/suites/07_adapters.sh.
 #
 #   Suite 11: 15 negative scenarios — each deliberately uses a wrong expected
 #   value and passes iff the assertion helper detected the injected error.
@@ -112,8 +92,6 @@ _print_summary
 #   D1/D2/D3 scenarios should PASS.
 if (( FAIL > 0 )); then
     echo ""
-    echo "Reminder: stub-adapter scenarios (ftp, hdl_dump, rclone)"
-    echo "are intentional FAILs until those adapters are implemented."
     echo "Suite 11 (negative) and suite 12 (DinD) should contribute 0 FAILs."
 fi
 

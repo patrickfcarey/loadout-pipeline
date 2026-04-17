@@ -21,7 +21,9 @@
 #   $INT_RCLONE_CONF      — rclone config file path
 #   $INT_SSH_PORT         — port sshd listens on for the rsync adapter
 #   $INT_SSH_KEY          — path to the ed25519 private key used by rsync
-#   $INT_HDL_APA          — loopback file for hdl_dump APA-formatted target
+#   $INT_HDL_STATE        — state dir the mock hdl_dump writes its TOC into
+#   $INT_HDL_DEVICE       — logical device id the mock resolves (hdd0)
+#   $INT_HDL_BIN          — path to the mock hdl_dump shim the suite uses
 #
 # Bootstrap is all-or-nothing and hard-fails on any provisioning error.
 # No silent degradation — the test-21 philosophy is applied uniformly.
@@ -134,41 +136,84 @@ _int_setup_sd_vfat() {
 
 # ── substrate: pure-ftpd loopback ────────────────────────────────────────────
 #
-# Provisioned but NOT exercised by the current suites (the ftp adapter is
-# a stub). Bootstrap still sets it up so when the real adapter lands the
-# only change needed is in the corresponding suite file.
+# Exercises the real FTP adapter via pure-ftpd on 127.0.0.1:2121 with a
+# dedicated authenticated user. Used by integration suite 07 (Tests 16, 16b, 16c).
+#
+# Anonymous logins are deliberately NOT used: pure-ftpd hardcodes an
+# anonymous-no-overwrite restriction that triggers "550 Anonymous users may
+# not overwrite existing files" even on first-time uploads when lftp's
+# `mirror -R` uses atomic upload or issues a trailing SITE CHMOD. A real
+# system user bypasses that gate entirely and lets us exercise re-run /
+# precheck-skip scenarios (Test 16b) honestly.
 
 _int_setup_ftp() {
     export INT_FTP_ROOT="$INT_STATE/ftp"
     export INT_FTP_PORT=2121
+    export INT_FTP_USER="ftptest"
+    export INT_FTP_PASS="loadout-ftp-test"
+
     mkdir -p "$INT_FTP_ROOT"
-    chmod 777 "$INT_FTP_ROOT"
+
+    # Real system user for pure-ftpd's unix auth (-l unix). Home points at
+    # the FTP root so -A (chroot-everyone) jails them there.
+    if ! id "$INT_FTP_USER" >/dev/null 2>&1; then
+        useradd -d "$INT_FTP_ROOT" -s /bin/bash -M "$INT_FTP_USER" \
+            || bootstrap_fail "useradd $INT_FTP_USER failed"
+    fi
+    echo "$INT_FTP_USER:$INT_FTP_PASS" | chpasswd \
+        || bootstrap_fail "chpasswd for $INT_FTP_USER failed"
+
+    # The user needs to own its chroot root so uploads can write there.
+    chown -R "$INT_FTP_USER:$INT_FTP_USER" "$INT_FTP_ROOT"
+    chmod 755 "$INT_FTP_ROOT"
+
+    # pure-ftpd's unix auth refuses users whose login shell isn't listed in
+    # /etc/shells. Debian-slim ships an empty /etc/shells, so add bash.
+    if ! grep -qxF "/bin/bash" /etc/shells 2>/dev/null; then
+        echo "/bin/bash" >> /etc/shells
+    fi
+
     # Run pure-ftpd in foreground mode, backgrounded via the shell (&).
     # Avoiding -B (daemonize) because some Debian builds exit non-zero
     # silently when attempting to fork inside a container. Shell-level
     # backgrounding gives us a concrete PID for teardown and avoids the
     # double-fork that makes error detection unreliable.
     #
-    #   -e  only anonymous logins
-    #   -M  allow anonymous to create directories
-    #   -S  bind address,port (no space between address and port)
+    #   -l unix      authenticate against /etc/passwd + /etc/shadow directly
+    #                (no PAM config required inside the container)
+    #   -E           only authenticated logins (disable anonymous entirely)
+    #   -A           force chroot() for every user into their home dir
+    #   -j           auto-create user home dir if missing
+    #   -M           allow authenticated users to create directories
+    #   -S           bind address,port (no space between address and port)
+    local ftpd_log="$INT_STATE/pure-ftpd.log"
     pure-ftpd \
-        -e \
+        -l unix \
+        -E \
+        -A \
+        -j \
         -M \
         -S "127.0.0.1,$INT_FTP_PORT" \
-        "$INT_FTP_ROOT" >/dev/null 2>&1 &
+        >"$ftpd_log" 2>&1 &
     local INT_FTP_PID=$!
 
-    # Poll for up to 2 seconds until the port is listening.
-    local i
-    for i in $(seq 1 20); do
-        if ss -tlnp 2>/dev/null | grep -q ":$INT_FTP_PORT "; then
-            break
+    # Poll for up to 3 seconds until the port is listening. Try ss first
+    # (needs iproute2); fall back to bash /dev/tcp probe if ss is absent.
+    local i _ftp_up=0
+    for i in $(seq 1 30); do
+        if command -v ss >/dev/null 2>&1; then
+            ss -tlnp 2>/dev/null | grep -q ":$INT_FTP_PORT " && { _ftp_up=1; break; }
+        else
+            (echo >/dev/tcp/127.0.0.1/$INT_FTP_PORT) 2>/dev/null && { _ftp_up=1; break; }
         fi
         sleep 0.1
     done
 
-    if ! ss -tlnp 2>/dev/null | grep -q ":$INT_FTP_PORT "; then
+    if (( ! _ftp_up )); then
+        echo "[bootstrap] pure-ftpd log:" >&2
+        cat "$ftpd_log" >&2 2>/dev/null || true
+        echo "[bootstrap] pure-ftpd process state:" >&2
+        kill -0 "$INT_FTP_PID" 2>&1 >&2 || echo "[bootstrap]   PID $INT_FTP_PID is dead" >&2
         kill "$INT_FTP_PID" 2>/dev/null || true
         bootstrap_fail "pure-ftpd failed to start on port $INT_FTP_PORT (pid $INT_FTP_PID)"
     fi
@@ -215,19 +260,111 @@ EOF
     /usr/sbin/sshd -f "$cfg" \
         || bootstrap_fail "sshd failed to start on port $INT_SSH_PORT"
     _int_push_teardown "[[ -f '$INT_STATE/sshd.pid' ]] && kill \$(cat '$INT_STATE/sshd.pid')"
+    local _i
+    for _i in $(seq 1 30); do
+        ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i "$INT_SSH_KEY" -p "$INT_SSH_PORT" 127.0.0.1 true 2>/dev/null && break
+        sleep 0.1
+    done
 }
 
-# ── substrate: hdl_dump APA loopback target ─────────────────────────────────
+# ── substrate: hdl_dump mock shim ───────────────────────────────────────────
 #
-# Provisioned but NOT exercised (hdl_dump adapter is a stub). A 16 MB
-# loopback file is enough to accept the APA header the real adapter would
-# eventually write. We do not pre-format with hdl_dump because the image
-# may not carry it — the corresponding suite scenario hard-fails anyway.
+# A real end-to-end hdl_dump inject requires a PS2 HDD pre-formatted with an
+# APA partition table and seeded with a signed MBR KELF (a cryptographically-
+# signed PS2 executable that we cannot ship or synthesize in CI). Accordingly,
+# the integration bootstrap installs a lightweight shim at /usr/local/bin/hdl_dump
+# that implements just enough of the real CLI for our tests:
+#
+#   hdl_dump toc <device>:
+#     Reads "$HOME/.hdl_dump.conf" to resolve <device> → host path, then prints
+#     the TOC (stored as plain text in a state-dir file keyed by host path).
+#     Exits 0 even if no titles are present (empty output).
+#
+#   hdl_dump inject_cd <device>: <title> <iso_path>
+#   hdl_dump inject_dvd <device>: <title> <iso_path>
+#     Resolves <device> via "$HOME/.hdl_dump.conf", validates <iso_path> exists,
+#     and appends <title> to the TOC state file. Idempotent — injecting the same
+#     title twice is a no-op.
+#
+# This mirrors the real hdl_dump's HOME/.hdl_dump.conf contract exactly (see
+# ps2homebrew/hdl-dump common.c:get_config_file). The shim is installed during
+# bootstrap (rather than baked into the Dockerfile) so a developer iterating on
+# hdl_dump test behaviour can tweak the shim without a container rebuild.
 
 _int_setup_hdl() {
-    export INT_HDL_APA="$INT_STATE/hdl_apa.img"
-    truncate -s 16M "$INT_HDL_APA" || bootstrap_fail "truncate $INT_HDL_APA"
-    _int_push_teardown "rm -f '$INT_HDL_APA'"
+    export INT_HDL_STATE="$INT_STATE/hdl_state"
+    export INT_HDL_DEVICE="hdd0"
+    export INT_HDL_BIN="/usr/local/bin/hdl_dump"
+    mkdir -p "$INT_HDL_STATE" || bootstrap_fail "mkdir $INT_HDL_STATE"
+    _int_push_teardown "rm -rf '$INT_HDL_STATE'"
+    _int_push_teardown "rm -f '$INT_HDL_BIN'"
+
+    cat > "$INT_HDL_BIN" <<'MOCK_HDL_DUMP'
+#!/usr/bin/env bash
+# Integration-test mock for ps2homebrew/hdl-dump.
+# State lives under $INT_HDL_STATE, keyed by the host path resolved from
+# "$HOME/.hdl_dump.conf" — exactly the contract the real upstream binary uses.
+set -euo pipefail
+
+die() { echo "hdl_dump(mock): $*" >&2; exit 1; }
+
+_resolve() {
+    local dev_arg="$1" dev="${1%:}" cfg="$HOME/.hdl_dump.conf"
+    [[ "$dev_arg" == *: ]] || die "device arg must end with ':' (got '$dev_arg')"
+    [[ -f "$cfg" ]] || die "config not found: $cfg"
+    local line host_path
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # <device> <host_path> <mode>
+        read -r cfg_dev cfg_path _ <<< "$line" || true
+        if [[ "$cfg_dev" == "$dev" ]]; then
+            host_path="$cfg_path"
+            break
+        fi
+    done < "$cfg"
+    [[ -n "${host_path:-}" ]] || die "no mapping for '$dev' in $cfg"
+    printf '%s\n' "$host_path"
+}
+
+_state_file() {
+    local host_path="$1"
+    local state_dir="${INT_HDL_STATE:?INT_HDL_STATE not exported to mock}"
+    # Flatten the host path into a filename-safe key.
+    local key
+    key="$(printf '%s' "$host_path" | tr '/' '_')"
+    printf '%s/%s.toc\n' "$state_dir" "$key"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+    toc)
+        [[ $# -eq 2 ]] || die "usage: hdl_dump toc <device>:"
+        host_path="$(_resolve "$2")"
+        state_file="$(_state_file "$host_path")"
+        [[ -f "$state_file" ]] && cat "$state_file" || true
+        ;;
+    inject_cd|inject_dvd)
+        [[ $# -eq 4 ]] || die "usage: hdl_dump $cmd <device>: <title> <iso>"
+        host_path="$(_resolve "$2")"
+        title="$3"
+        iso="$4"
+        [[ -f "$iso" ]] || die "iso not found: $iso"
+        state_file="$(_state_file "$host_path")"
+        if ! [[ -f "$state_file" ]] || ! grep -qxF "$title" "$state_file"; then
+            printf '%s\n' "$title" >> "$state_file"
+        fi
+        echo "hdl_dump(mock): $cmd injected \"$title\" from $iso into $host_path"
+        ;;
+    "")
+        die "no subcommand"
+        ;;
+    *)
+        die "unsupported subcommand '$cmd' (mock supports: toc, inject_cd, inject_dvd)"
+        ;;
+esac
+MOCK_HDL_DUMP
+    chmod 0755 "$INT_HDL_BIN" || bootstrap_fail "chmod $INT_HDL_BIN"
 }
 
 # ── top-level entrypoint ─────────────────────────────────────────────────────
@@ -242,9 +379,7 @@ bootstrap_all() {
     _int_setup_rclone
     _int_setup_ssh
     _int_setup_hdl
-    # NOTE: _int_setup_ftp is intentionally omitted. The FTP adapter is a
-    # stub and pure-ftpd is not exercised by any current suite. Restore this
-    # call (and add pure-ftpd to the Dockerfile) when the real adapter lands.
+    _int_setup_ftp
     echo "[bootstrap] done."
     echo "[bootstrap]   INT_STATE        = $INT_STATE"
     echo "[bootstrap]   INT_EXTRACT      = $INT_EXTRACT (1536M tmpfs)"
@@ -253,5 +388,6 @@ bootstrap_all() {
     echo "[bootstrap]   INT_SD_VFAT      = $INT_SD_VFAT (loop $INT_SD_LOOP on $INT_SD_IMG)"
     echo "[bootstrap]   INT_RCLONE_REMOTE= $INT_RCLONE_REMOTE: → $INT_RCLONE_BASE"
     echo "[bootstrap]   INT_SSH_PORT     = $INT_SSH_PORT (key $INT_SSH_KEY)"
-    echo "[bootstrap]   INT_HDL_APA      = $INT_HDL_APA"
+    echo "[bootstrap]   INT_HDL_BIN      = $INT_HDL_BIN (mock, device ${INT_HDL_DEVICE}:, state $INT_HDL_STATE)"
+    echo "[bootstrap]   INT_FTP_PORT     = $INT_FTP_PORT (root $INT_FTP_ROOT, user $INT_FTP_USER)"
 }

@@ -204,7 +204,7 @@ assert_all_extracted() {
     local base="${1:-$EXTRACT_BASE}"
     local line iso game
     while IFS= read -r line; do
-        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        [[ -z "$line" || "$line" =~ ^# || "$line" == '---JOBS---' || "$line" == '---END---' ]] && continue
         iso=$(job_line_archive "$line")
         game="$(basename "$iso" .7z)"
         assert_extracted "$game" "$base"
@@ -233,7 +233,7 @@ assert_queue_empty() {
 clean_extracts() {
     local line iso game
     while IFS= read -r line; do
-        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        [[ -z "$line" || "$line" =~ ^# || "$line" == '---JOBS---' || "$line" == '---END---' ]] && continue
         iso=$(job_line_archive "$line")
         game="$(basename "$iso" .7z)"
         rm -rf "${EXTRACT_BASE:?}/$game"
@@ -250,7 +250,7 @@ clean_extracts() {
 assert_clean_slate() {
     local line iso game
     while IFS= read -r line; do
-        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        [[ -z "$line" || "$line" =~ ^# || "$line" == '---JOBS---' || "$line" == '---END---' ]] && continue
         iso=$(job_line_archive "$line")
         game="$(basename "$iso" .7z)"
         if [[ -d "$EXTRACT_BASE/$game" ]]; then
