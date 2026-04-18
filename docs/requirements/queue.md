@@ -183,6 +183,28 @@ queue_pop <qdir>
   must treat this as a worker-level error, log it, and either
   recover or abort. They must **not** treat rc=2 as an empty queue.
 
+**Claim race (two workers, one job)**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W1 as Worker 1
+    participant FS as Queue Dir
+    participant W2 as Worker 2
+    W1->>FS: find *.job (glob)
+    W2->>FS: find *.job (glob)
+    Note over W1,W2: Both workers see the same<br/>candidate file J
+    W1->>FS: mv J J.claimed.PID1
+    FS-->>W1: rc=0 (claimed)
+    W2->>FS: mv J J.claimed.PID2
+    FS-->>W2: rc!=0 (ENOENT)
+    Note over W2: "|| continue" —<br/>move to next candidate
+    W1->>FS: cat J.claimed.PID1 → payload
+    W1->>FS: rm J.claimed.PID1
+    W1-->>W1: return 0 (job in hand)
+    W2->>FS: find *.job (next iteration)
+```
+
 **Invariants**
 
 - The mv-rename is atomic on the same filesystem. Exactly one

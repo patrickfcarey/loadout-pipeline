@@ -7,6 +7,35 @@ reservations because the full "read ledger → call df → decide →
 append" sequence runs inside an exclusive `flock` on
 `$QUEUE_DIR/.space_ledger.lock`.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W as Extract Worker
+    participant F as .space_ledger.lock<br/>(flock -x)
+    participant L as .space_ledger
+    participant D as df (kernel)
+    W->>F: flock -x 9
+    activate F
+    W->>L: awk phantom GC<br/>(kill -0 on owner pids)
+    W->>D: df --output=avail $copy_dir
+    D-->>W: avail_bytes
+    W->>L: sum reserved_on_dev(copy_dev)
+    L-->>W: reserved_bytes
+    W->>W: _space_apply_overhead<br/>(× SPACE_OVERHEAD_PCT)
+    alt need ≤ avail − reserved
+        W->>L: append "$id $cdev $cbytes $edev $ebytes $pid"
+        W-->>W: rc=0 (reserved)
+    else no fit
+        W-->>W: rc=75 (retry)
+    end
+    W->>F: flock release
+    deactivate F
+```
+
+The pooled-vs-separate-device branch is simplified above into a single
+"need ≤ avail − reserved" check; the file itself is the source of truth
+for the two-device arithmetic.
+
 Two subtle design points shape every function in this file:
 
 - **Phantom GC.** A worker SIGKILL'd mid-reservation cannot run its

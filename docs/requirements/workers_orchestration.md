@@ -23,6 +23,21 @@ loop terminates when `MAX_RECOVERY_ATTEMPTS` passes run without
 producing new orphans, or when `_recover_orphans` returns 1 (empty
 registry).
 
+```mermaid
+flowchart TD
+    S([workers_start]) --> I[_spool_sweep_and_claim<br/>_pipeline_run_init]
+    I --> E1[enqueue JOBS into<br/>EXTRACT_QUEUE_DIR]
+    E1 --> P["pass = 1"]
+    P --> RUN[_run_worker_pass:<br/>spawn MAX_UNZIP extract,<br/>touch .extract_done,<br/>spawn MAX_DISPATCH dispatch]
+    RUN --> REC{_recover_orphans:<br/>any orphans in<br/>.worker_registry?}
+    REC -- no --> OK([exit rc=0])
+    REC -- yes --> RQ[re-queue orphans<br/>to EXTRACT_QUEUE_DIR]
+    RQ --> INC["pass = pass + 1"]
+    INC --> GUARD{pass ><br/>MAX_RECOVERY_ATTEMPTS?}
+    GUARD -- no --> RUN
+    GUARD -- yes --> FAIL([exit rc=1<br/>log: max recovery attempts reached])
+```
+
 ### `_spool_sweep_and_claim`
 
 **Source**: `lib/workers.sh:56`

@@ -95,6 +95,22 @@ default, succeed on opt-in) is considered stable.
 
 ---
 
+## Dispatch routing
+
+`lib/dispatch.sh` routes each extracted job to exactly one adapter
+script by `case`-matching on the `adapter` field of the job line:
+
+```mermaid
+flowchart LR
+    D["lib/dispatch.sh<br/>case $adapter"] --> L["adapters/lvol.sh<br/>(implemented)"]
+    D --> F["adapters/ftp.sh<br/>(stub)"]
+    D --> H["adapters/hdl_dump.sh<br/>(implemented)"]
+    D --> R["adapters/rclone.sh<br/>(stub)"]
+    D --> S["adapters/rsync.sh<br/>(implemented)"]
+```
+
+---
+
 ### Script contract: `adapters/lvol.sh`
 
 **Source**: `adapters/lvol.sh:1`

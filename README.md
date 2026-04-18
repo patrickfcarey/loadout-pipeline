@@ -6,6 +6,25 @@ It supports **parallel extraction**, **bounded queues**, **pluggable adapters**,
 
 ---
 
+## Overview
+
+```mermaid
+flowchart LR
+    J[".jobs file<br/>~iso|adapter|dest~"] --> L["lib/jobs.sh<br/>load_jobs"]
+    L --> EQ[("EXTRACT_QUEUE_DIR")]
+    EQ --> EW["MAX_UNZIP<br/>extract workers<br/>(lib/extract.sh)"]
+    EW --> DQ[("DISPATCH_QUEUE_DIR")]
+    DQ --> DW["MAX_DISPATCH<br/>dispatch workers<br/>(lib/dispatch.sh)"]
+    DW --> A{adapter?}
+    A --> AL["lvol"]
+    A --> AF["ftp"]
+    A --> AH["hdl"]
+    A --> AR["rclone"]
+    A --> AS["rsync"]
+```
+
+---
+
 ## Features
 
 - Two-stage pipeline: extract workers (`MAX_UNZIP`) and dispatch workers (`MAX_DISPATCH`) drain two file-based queues concurrently so dispatch of job N overlaps extraction of job N+1

@@ -80,6 +80,37 @@ Termination of a single pass: after all extract workers exit, `workers_start`
 writes `$QUEUE_DIR/.extract_done`. Dispatch workers exit the moment both
 conditions hold — dispatch queue empty AND the sentinel file exists.
 
+### Single-job state machine
+
+The ASCII tree above shows the *system* flow; the state diagram below shows
+what happens to **one job token** as it walks through the pipeline —
+including the precheck short-circuit, the rc=75 space-retry loop, and the
+SIGKILL → recovery path.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Queued : queue_push EXTRACT
+    Queued --> Claimed : queue_pop (mv wins)
+    Claimed --> Prechecking : extract.sh start
+    Prechecking --> Skipped : precheck rc=0<br/>(already at dest)
+    Prechecking --> Reserving : precheck rc=1
+    Prechecking --> Failed : precheck rc=2+
+    Reserving --> Copying : space_reserve ok
+    Reserving --> Queued : space_reserve rc=75<br/>(retry/backoff)
+    Copying --> Extracting : cp → $COPY_SPOOL
+    Extracting --> Stripping : 7z x → $EXTRACT_DIR
+    Stripping --> DispatchQueued : strip.list applied
+    DispatchQueued --> Dispatching : dispatch_worker claim
+    Dispatching --> Done : adapter rc=0
+    Dispatching --> Failed : adapter rc!=0
+    Claimed --> Orphaned : SIGKILL
+    Dispatching --> Orphaned : SIGKILL
+    Orphaned --> Queued : _recover_orphans<br/>(pass N+1)
+    Skipped --> [*]
+    Done --> [*]
+    Failed --> [*]
+```
+
 ---
 
 ## Queue Design
