@@ -70,17 +70,27 @@ echo "[ftp] Transferring $src → ftp://$FTP_HOST:$port$remote_path"
 # as needed. --continue enables resume on partial uploads. --verbose shows
 # per-file progress.
 #
-# Credentials are passed via lftp `set` commands rather than embedding them
-# in the URL. This avoids URL-encoding issues with special characters (@, :,
-# /, etc.) in usernames or passwords.
+# Quoting notes — the previous version inlined $src and $remote_path into
+# lftp's command stream without quotes, so a space in $src (legitimate under
+# the iso_path regex, e.g. "Tony Hawk's Pro Skater") split `mirror`'s args
+# into wrong tokens. Double-quoting the paths inside lftp's own scripting
+# language tokenises them as single args.
+#
+# Credentials still flow through `open -u user,password` — lftp has no
+# config variable for default creds (ftp:default-user/-password do not
+# exist; `set -a` on any lftp build will confirm). The comma separator
+# rules out a literal comma in the password; the double quotes around
+# "$FTP_USER,$FTP_PASS" prevent space/tab in either field from splitting
+# the open argv. The heredoc form keeps creds off the lftp process's own
+# argv, which was the other motivation for moving away from `-e`.
 
-lftp -e "
-    set ftp:passive-mode yes
-    set net:max-retries 3
-    set net:reconnect-interval-base 5
-    open -u $FTP_USER,$FTP_PASS -p $port $FTP_HOST
-    mirror -R --continue --verbose $src $remote_path
-    quit
-"
+lftp <<LFTP_SCRIPT
+set ftp:passive-mode yes
+set net:max-retries 3
+set net:reconnect-interval-base 5
+open -u "$FTP_USER,$FTP_PASS" -p "$port" "$FTP_HOST"
+mirror -R --continue --verbose "$src" "$remote_path"
+quit
+LFTP_SCRIPT
 
 log_trace "ftp: done → ftp://$FTP_HOST:$port$remote_path"

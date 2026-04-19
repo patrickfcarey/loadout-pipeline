@@ -49,6 +49,14 @@ load_jobs() {
     log_enter
     local file="$1"
 
+    # Detect whether this is the outermost load_jobs frame. Recursive
+    # invocations (from the directory-profile branch below) have
+    # FUNCNAME[1]=load_jobs; external callers do not. Only the outer call
+    # runs the cross-file basename-uniqueness check at the end, so the
+    # O(N) scan happens once per run rather than once per recursion.
+    local _is_outer=0
+    [[ "${FUNCNAME[1]:-}" != "load_jobs" ]] && _is_outer=1
+
     # Directory profile: load every *.jobs file inside, in sorted order.
     # JOBS is global, so the recursive calls append into the same array the
     # caller reads afterwards. Sort guarantees deterministic ordering across
@@ -68,6 +76,9 @@ load_jobs() {
         for _jf in "${_dir_files[@]}"; do
             load_jobs "$_jf" || return 1
         done
+        if (( _is_outer )); then
+            _jobs_assert_unique_basenames || return 1
+        fi
         return 0
     fi
 
@@ -109,31 +120,45 @@ load_jobs() {
         # Format: ~iso_path|adapter|destination~
         # Validation rules:
         #   iso_path    — absolute path to a .7z archive on the local filesystem.
-        #                 Allowed: letters, digits, _ . / - and ALSO spaces and
-        #                 parentheses, because standard game ISO naming conventions
-        #                 (e.g. "Ultimate Board Game Collection (USA).7z") commonly
+        #                 Allowed: letters, digits, _ . / - and ALSO spaces,
+        #                 parentheses, and apostrophes, because standard game ISO
+        #                 naming conventions (e.g. "Tony Hawk's Pro Skater.7z" or
+        #                 "Ultimate Board Game Collection (USA).7z") commonly
         #                 include them. Every pipeline code path double-quotes
-        #                 $archive, so spaces and parentheses are safe in practice.
+        #                 $archive, so apostrophes and the other extras are safe.
         #   adapter     — one of: ftp  hdl  lvol  rclone  rsync
         #   destination — adapter-specific target path. More restrictive than
-        #                 iso_path: spaces and parentheses are NOT allowed here
-        #                 because adapter destinations may be passed to external
+        #                 iso_path: spaces, parens, and apostrophes are NOT allowed
+        #                 here because adapter destinations may be passed to external
         #                 tools (rsync, rclone, lftp) whose quoting behaviour varies
         #                 and because remote paths rarely need those characters.
         #                 Allowed: letters, digits, _ . / -
+        #                 Exception: the hdl title sub-field (third pipe onward)
+        #                 accepts a broader character class because real PS2
+        #                 titles contain spaces, parens, apostrophes, ampersands
+        #                 (e.g. "Ratchet & Clank"), and colons (e.g. "Final
+        #                 Fantasy VII: Advent Children"). Every adapter wraps
+        #                 the title in double quotes before handing it to an
+        #                 external binary, so these extras are safe here.
         #
-        # Always rejected in both fields: shell injection characters (; & $ ` " '
-        # \ tab) and the path-traversal sequence (..). Additional |field groups
-        # after the third pipe are allowed for future column extensibility.
+        # Always rejected in every field: shell injection characters (; $ ` "
+        # \ tab, newline) and the path-traversal sequence (..). Additional
+        # |field groups after the third pipe are allowed for future column
+        # extensibility.
         #
         # Store the pattern in a variable. bash recommends this when the ERE
         # contains spaces so the pattern is not subject to word-splitting.
-        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ ()-]*)*~$'
+        # The '"'"' sequence embeds a literal apostrophe inside the single-
+        # quoted pattern by closing, escaping, and re-opening the string.
+        # Dash (-) is placed last inside each bracket expression so it is
+        # interpreted literally, not as a range marker.
+        local _job_regex='^~/[A-Za-z0-9_./ '"'"'()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ '"'"'&:()-]*)*~$'
         if [[ ! "$line" =~ $_job_regex ]]; then
             log_error "invalid job at line $lineno: '$line'"
             log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|lvol|rclone|rsync)|destination~"
-            log_error "iso_path chars : letters, digits, _ . / - space ( )"
+            log_error "iso_path chars : letters, digits, _ . / - space ( ) '"
             log_error "destination chars: letters, digits, _ . / -"
+            log_error "trailing-field (e.g. hdl title) also allows: space ( ) ' & :"
             return 1
         fi
 
@@ -205,4 +230,55 @@ load_jobs() {
     if [[ ${#JOBS[@]} -eq 0 ]]; then
         log_warn "no jobs found in $file"
     fi
+
+    if (( _is_outer )); then
+        _jobs_assert_unique_basenames || return 1
+    fi
+}
+
+# ─── _jobs_assert_unique_basenames ───────────────────────────────────────────
+# Asserts that no two DISTINCT archives share a basename. Two different files
+# (e.g. ps2/Final_Fantasy.7z and psx/Final_Fantasy.7z) would both drive
+# extract.sh to compute out_dir=$EXTRACT_DIR/Final_Fantasy and clobber each
+# other when unzip_worker runs them concurrently.
+#
+# The legitimate fan-out pattern — same archive path dispatched to multiple
+# destinations (install this ISO to N targets) — is explicitly allowed:
+# identical paths produce identical extract content, so the shared
+# out_dir is a cache hit, not a race. We key on the archive path first,
+# only flagging collisions where the stem matches but the path does not.
+#
+# Parameters  : none (reads the global JOBS array)
+#
+# Returns
+#   0 — every archive stem maps to at most one distinct path
+#   1 — at least one stem collision across different paths; error logged
+#
+# Locals
+#   seen     — associative array: stem → first archive path seen
+#   job      — current job token from JOBS
+#   parsed   — three-line output of parse_job_line for $job
+#   archive  — archive field parsed from $job
+#   stem     — basename "$archive" .7z — the extract-dir key we're guarding
+# ─────────────────────────────────────────────────────────────────────────────
+_jobs_assert_unique_basenames() {
+    local -A seen=()
+    local job parsed archive stem
+    for job in "${JOBS[@]}"; do
+        if ! parsed="$(parse_job_line "$job")"; then
+            continue
+        fi
+        { read -r archive; read -r _; read -r _; } <<< "$parsed"
+        stem="$(basename "$archive" .7z)"
+        if [[ -n "${seen[$stem]+_}" && "${seen[$stem]}" != "$archive" ]]; then
+            log_error "duplicate archive basename across jobs: '$stem.7z'"
+            log_error "  first archive : ${seen[$stem]}"
+            log_error "  next archive  : $archive"
+            log_error "two archives with the same basename would collide at \$EXTRACT_DIR/$stem"
+            log_error "rename one archive to make the basename unique"
+            return 1
+        fi
+        seen["$stem"]="$archive"
+    done
+    return 0
 }

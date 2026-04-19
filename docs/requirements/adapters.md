@@ -267,13 +267,25 @@ batch targets the same HDD under operator control.
 2. Calls `parse_hdl_destination "$dest"` to recover `format` / `title`.
 3. Requires `HDL_INSTALL_TARGET` to be non-empty (the inject target,
    e.g. `hdd0:`). Fails with a clear error message if unset.
-4. Locates exactly one `*.iso` in `<src>` (fails loudly on 0 or >1 —
-   matches the lvol wrapper-flatten strictness).
-5. Runs `"$HDL_DUMP_BIN" inject_cd "$HDL_INSTALL_TARGET" "<title>"
-   "<iso>"` (or `inject_dvd`, selected from `<format>`). Device
-   resolution (`<target>:` → host path) is delegated to the operator's
-   real `~/.hdl_dump.conf` — the adapter does not touch `HOME`, mint
-   scratch configs, or mirror upstream's config-file format.
+4. Selects the injection image based on `<format>`:
+   - **`dvd`** → `inject_dvd`. Requires exactly one `*.iso` under
+     `<src>` and rejects any `*.cue`/`*.bin` (PS2 DVD dumps are always
+     single-track ISO 9660).
+   - **`cd`** → `inject_cd`. Prefers a `*.cue` if present — `hdl_dump`
+     reads the cue and resolves its `*.bin` track references itself.
+     If no cue, falls back to a single `*.iso`. Rejects archives
+     that contain both a `*.cue` and a `*.iso` (ambiguous), and
+     rejects orphaned `*.bin` with no `*.cue` manifest.
+   - 0 matches, >1 matches of the chosen type, or a mixed/ambiguous
+     archive all fail loudly — matches the lvol wrapper-flatten
+     strictness. The operator must split multi-image archives into
+     separate jobs.
+5. Runs `"$HDL_DUMP_BIN" <inject_cmd> "$HDL_INSTALL_TARGET" "<title>"
+   "<image>"` where `<image>` is the `*.iso` or `*.cue` chosen in
+   step 4. Device resolution (`<target>:` → host path) is delegated
+   to the operator's real `~/.hdl_dump.conf` — the adapter does not
+   touch `HOME`, mint scratch configs, or mirror upstream's
+   config-file format.
 6. On missing `hdl_dump` binary, honors `ALLOW_STUB_ADAPTERS=1` as a
    no-op escape hatch (used by the unit suite on machines without
    `hdl_dump` installed); otherwise fails. The stub-escape branch runs

@@ -88,8 +88,9 @@ parse_job_line() {
 #
 # Field order is driven by the job-line regex: the destination slot only
 # permits [A-Za-z0-9_./-], which fits the format literals cd/dvd but not
-# titles that contain spaces or parentheses (e.g. "Shadow of the Colossus").
-# Titles ride in the trailing-field slot, whose regex allows spaces and ( ).
+# titles that contain spaces, parentheses, or apostrophes (e.g. "Shadow of
+# the Colossus", "Tony Hawk's Pro Skater"). Titles ride in the trailing-
+# field slot, whose regex allows spaces, ( ), and '.
 #
 # The host-side HDD device and the hdl_dump install target are operator-wide
 # values, not per-job, and live in env vars (HDL_HOST_DEVICE,

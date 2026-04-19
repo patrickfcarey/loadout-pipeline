@@ -184,7 +184,11 @@ case "$adapter" in
                         exit 2
                     fi
                     strip_list_contains "$f" && continue
-                    if ! echo "$remote_listing" | grep -qF "$(basename "$f")"; then
+                    # Whole-line match (-x) with fixed-string (-F) and end-of-arg
+                    # marker (--) so a member "SLUS_200.71" does NOT falsely
+                    # match a remote entry "SLUS_200.710" or "log_SLUS_200.71".
+                    # curl --list-only emits exactly one filename per line.
+                    if ! echo "$remote_listing" | grep -qxF -- "$(basename "$f")"; then
                         all_there=0
                         break
                     fi
@@ -221,11 +225,24 @@ case "$adapter" in
             set +e
             hdl_toc=$("$hdl_bin" toc "$hdl_target" 2>/dev/null)
             set -e
-            if echo "$hdl_toc" | grep -qF "$hdl_title"; then
-                already_present=1
-            else
-                already_present=0
-            fi
+            # hdl_dump toc emits one partition per line with the game title as
+            # the final whitespace-separated column. Match the title at the
+            # line's tail only — otherwise a substring scan has "Zelda" match
+            # a partition installed as "Zelda II", falsely marking the job as
+            # already present. Two forms are accepted: the full real-binary
+            # line ("…metadata… <title>", so preceded by whitespace) and a
+            # bare title line (integration-test mocks and any future minimal
+            # toc output). Anything else — title embedded mid-line, or as a
+            # prefix — is deliberately NOT a match. Trailing CR is stripped
+            # for hdl_dump builds that emit CRLF line endings.
+            already_present=0
+            while IFS= read -r _hdl_line; do
+                _hdl_line="${_hdl_line%$'\r'}"
+                if [[ "$_hdl_line" == "$hdl_title" || "$_hdl_line" == *[[:space:]]"$hdl_title" ]]; then
+                    already_present=1
+                    break
+                fi
+            done <<< "$hdl_toc"
         fi
         ;;
     rclone)
@@ -258,7 +275,11 @@ case "$adapter" in
                         exit 2
                     fi
                     strip_list_contains "$f" && continue
-                    if ! echo "$remote_files" | grep -qF "$f"; then
+                    # Whole-line match (-x) with fixed-string (-F) and end-of-arg
+                    # marker (--) to prevent a member "disc1" from falsely
+                    # matching a remote file "disc10". rclone lsf emits one
+                    # filename per line without a trailing slash.
+                    if ! echo "$remote_files" | grep -qxF -- "$f"; then
                         all_there=0
                         break
                     fi

@@ -98,7 +98,13 @@ echo "[lvol] Copying $src → $target"
 if command -v rsync >/dev/null 2>&1; then
     # Trailing slash on $src/ copies the contents of src into target rather
     # than nesting src as a subdirectory inside target.
-    rsync -a "$src/" "$target/"
+    #
+    # -c is critical: 7z x -aoa resets file mtimes on every re-extraction, so
+    # rsync's default size+mtime skip would re-transfer every file on every
+    # re-run even though the content is identical. Checksumming keeps
+    # idempotent re-runs a near-zero-cost no-op. Matches the -c flag on
+    # adapters/rsync.sh for the same reason.
+    rsync -ac "$src/" "$target/"
 else
     cp -r "$src/." "$target/"
 fi

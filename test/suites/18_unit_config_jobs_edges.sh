@@ -482,3 +482,174 @@ else
     fail "DEBUG_IND=true unexpectedly accepted (rc=$C9D_RC)"
 fi
 rm -rf "$C9D_ROOT"
+
+# =============================================================================
+# C10 — load_jobs accepts apostrophes in iso_path and hdl title fields
+# =============================================================================
+#
+# Real PS2/PSX game titles frequently contain apostrophes (e.g. "Tony Hawk's
+# Pro Skater", "Ratchet & Clank: Going Commando"). The iso_path regex used
+# to reject apostrophe entirely, forcing operators to rename archives
+# before submitting. Apostrophes are safe because every pipeline code path
+# double-quotes $archive and passes the hdl title as a distinct argv element.
+#
+# Destination remains restrictive (no apostrophe) because adapter destinations
+# may be passed to external tools whose quoting behaviour varies.
+
+header "Test C10: load_jobs accepts apostrophes in iso_path and hdl title"
+
+C10_FILE="/tmp/lp_unit_c10_$$.jobs"
+{ echo '---JOBS---'
+  echo "~/iso/Tony Hawk's Pro Skater.7z|lvol|games/thps~"
+  echo "~/iso/Ratchet.7z|hdl|dvd|Ratchet & Clank: Up Your Arsenal~"
+  echo "~/iso/Ico.7z|hdl|cd|Ico (Shadow's Cousin)~"
+  echo '---END---'
+} > "$C10_FILE"
+
+C10_OUT=$(bash -c '
+    source "$1/lib/logging.sh"
+    source "$1/lib/jobs.sh"
+    load_jobs "$2" >/dev/null 2>&1
+    for j in "${JOBS[@]}"; do
+        echo "$j"
+    done
+' -- "$ROOT_DIR" "$C10_FILE")
+
+if grep -qF "Tony Hawk's Pro Skater.7z" <<< "$C10_OUT"; then
+    pass "apostrophe in iso_path accepted"
+else
+    fail "apostrophe in iso_path rejected: $C10_OUT"
+fi
+if grep -qF "Ratchet & Clank: Up Your Arsenal" <<< "$C10_OUT"; then
+    pass "hdl title with & and : accepted"
+else
+    fail "hdl title with & and : rejected: $C10_OUT"
+fi
+if grep -qF "Ico (Shadow's Cousin)" <<< "$C10_OUT"; then
+    pass "hdl title with apostrophe and parens accepted"
+else
+    fail "hdl title with apostrophe rejected: $C10_OUT"
+fi
+
+# Destination must still reject apostrophe — the restriction on the
+# destination field protects downstream remote-tool quoting.
+C10B_FILE="/tmp/lp_unit_c10b_$$.jobs"
+{ echo '---JOBS---'
+  echo "~/iso/game.7z|lvol|games/bad's_dest~"
+  echo '---END---'
+} > "$C10B_FILE"
+C10B_RC=0
+bash -c '
+    source "$1/lib/logging.sh"
+    source "$1/lib/jobs.sh"
+    load_jobs "$2"
+' -- "$ROOT_DIR" "$C10B_FILE" >/dev/null 2>&1 || C10B_RC=$?
+if (( C10B_RC == 1 )); then
+    pass "apostrophe in destination still rejected (rc=1)"
+else
+    fail "apostrophe in destination wrongly accepted (rc=$C10B_RC)"
+fi
+
+rm -f "$C10_FILE" "$C10B_FILE"
+
+# =============================================================================
+# C11 — load_jobs rejects duplicate archive basenames across jobs
+# =============================================================================
+#
+# Two archives with the same basename (e.g. ps2/Mario.7z and psx/Mario.7z)
+# would both drive extract.sh to compute out_dir=$EXTRACT_DIR/Mario and
+# clobber each other when concurrent unzip workers process them. The
+# detection happens once per run in the outer load_jobs frame so the O(N)
+# scan does not get paid per recursive call on directory profiles.
+
+header "Test C11: load_jobs rejects duplicate archive basenames"
+
+# Sub-case A: duplicates within a single .jobs file.
+C11A_FILE="/tmp/lp_unit_c11a_$$.jobs"
+{ echo '---JOBS---'
+  echo "~/ps2/Mario.7z|lvol|games/ps2_mario~"
+  echo "~/psx/Mario.7z|lvol|games/psx_mario~"
+  echo '---END---'
+} > "$C11A_FILE"
+
+C11A_RC=0
+C11A_LOG=$(mktemp)
+bash -c '
+    source "$1/lib/logging.sh"
+    source "$1/lib/jobs.sh"
+    load_jobs "$2"
+' -- "$ROOT_DIR" "$C11A_FILE" >"$C11A_LOG" 2>&1 || C11A_RC=$?
+
+if (( C11A_RC == 1 )); then
+    pass "duplicate basename in single file rejected with rc=1"
+else
+    fail "duplicate basename accepted (rc=$C11A_RC)"
+    sed 's/^/      /' "$C11A_LOG"
+fi
+if grep -q 'duplicate archive basename' "$C11A_LOG"; then
+    pass "error message names the collision"
+else
+    fail "expected 'duplicate archive basename' in log: $(cat "$C11A_LOG")"
+fi
+if grep -qF 'ps2/Mario.7z' "$C11A_LOG" && grep -qF 'psx/Mario.7z' "$C11A_LOG"; then
+    pass "error message identifies both offending archives"
+else
+    fail "error log did not name both colliding archives"
+    sed 's/^/      /' "$C11A_LOG"
+fi
+
+# Sub-case B: duplicates across two files in a directory profile.
+# The collision straddles the recursion boundary, which means the check
+# must be applied once at the OUTER load_jobs frame — not per recursive
+# call. A per-file check would miss this case.
+C11B_DIR="/tmp/lp_unit_c11b_$$"
+mkdir -p "$C11B_DIR"
+{ echo '---JOBS---'
+  echo "~/vol1/SameName.7z|lvol|dest/a~"
+  echo '---END---'
+} > "$C11B_DIR/a.jobs"
+{ echo '---JOBS---'
+  echo "~/vol2/SameName.7z|lvol|dest/b~"
+  echo '---END---'
+} > "$C11B_DIR/b.jobs"
+
+C11B_RC=0
+C11B_LOG=$(mktemp)
+bash -c '
+    source "$1/lib/logging.sh"
+    source "$1/lib/jobs.sh"
+    load_jobs "$2"
+' -- "$ROOT_DIR" "$C11B_DIR" >"$C11B_LOG" 2>&1 || C11B_RC=$?
+
+if (( C11B_RC == 1 )); then
+    pass "duplicate basename across directory profile rejected"
+else
+    fail "cross-file duplicate accepted (rc=$C11B_RC)"
+    sed 's/^/      /' "$C11B_LOG"
+fi
+
+# Sub-case C: same basename with DIFFERENT extensions is fine (only .7z
+# stems collide at extract time). Kept as a positive regression so a future
+# tighter rule does not over-reject.
+C11C_FILE="/tmp/lp_unit_c11c_$$.jobs"
+{ echo '---JOBS---'
+  echo "~/iso/game_a.7z|lvol|dest/a~"
+  echo "~/iso/game_b.7z|lvol|dest/b~"
+  echo "~/iso/game_c.7z|lvol|dest/c~"
+  echo '---END---'
+} > "$C11C_FILE"
+
+C11C_RC=0
+bash -c '
+    source "$1/lib/logging.sh"
+    source "$1/lib/jobs.sh"
+    load_jobs "$2"
+' -- "$ROOT_DIR" "$C11C_FILE" >/dev/null 2>&1 || C11C_RC=$?
+if (( C11C_RC == 0 )); then
+    pass "distinct basenames still accepted"
+else
+    fail "unique basename jobs wrongly rejected (rc=$C11C_RC)"
+fi
+
+rm -f "$C11A_FILE" "$C11A_LOG" "$C11B_LOG" "$C11C_FILE"
+rm -rf "$C11B_DIR"
