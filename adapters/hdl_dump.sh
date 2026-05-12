@@ -64,11 +64,15 @@ hdl_bin="${HDL_DUMP_BIN:-hdl_dump}"
 install_target="${HDL_INSTALL_TARGET:-}"
 
 # ── Stub-mode escape hatch ──────────────────────────────────────────────────
-# Matches the convention in adapters/ftp.sh: operators without a real
-# hdl_dump binary installed can set ALLOW_STUB_ADAPTERS=1 to no-op the
-# adapter (useful for dev, unit tests, and CI machines without PS2 tooling).
-# Stub mode bypasses the HDL_INSTALL_TARGET requirement too — the env var
-# only matters once we are actually going to call hdl_dump.
+# Matches the convention in adapters/ftp.sh and adapters/rclone.sh: when an
+# operator's environment is missing a required dependency (the hdl_dump
+# binary on PATH, or HDL_INSTALL_TARGET in the env), ALLOW_STUB_ADAPTERS=1
+# converts the would-be hard error into a logged no-op. This is what the
+# unit suite (test/run_tests.sh exports ALLOW_STUB_ADAPTERS=1 globally)
+# relies on to exercise the rest of the pipeline on dev/CI hosts that have
+# no PS2 hardware. Both refusal paths (binary missing, target unset) honour
+# the flag uniformly so a host can't silently fail one and stub the other
+# depending on what happens to be installed.
 if ! command -v "$hdl_bin" >/dev/null 2>&1; then
     if [[ "${ALLOW_STUB_ADAPTERS:-0}" == 1 ]]; then
         echo "[hdl] STUB — $hdl_bin not on PATH; running as no-op (ALLOW_STUB_ADAPTERS=1)"
@@ -80,6 +84,10 @@ if ! command -v "$hdl_bin" >/dev/null 2>&1; then
 fi
 
 if [[ -z "$install_target" ]]; then
+    if [[ "${ALLOW_STUB_ADAPTERS:-0}" == 1 ]]; then
+        echo "[hdl] STUB — HDL_INSTALL_TARGET not set; running as no-op (ALLOW_STUB_ADAPTERS=1)"
+        exit 0
+    fi
     log_error "hdl: HDL_INSTALL_TARGET is not set"
     log_error "hdl: set it to the hdl_dump target (e.g. hdd0:) via .env or the wrapper"
     exit 1

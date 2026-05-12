@@ -198,16 +198,17 @@ shared ledger) so concurrent workers coordinate reservations properly.
 
 Per-adapter behaviour:
 
-| Adapter  | Check                                                   | Status                              |
-| -------- | ------------------------------------------------------- | ----------------------------------- |
-| `lvol`   | `test -e "$LVOL_MOUNT_POINT/$dest/<contained>"`         | Real                                |
-| `ftp`    | `curl --list-only` against FTP dest, match each member  | Real                                |
-| `hdl`    | `hdl_dump toc "$HDL_INSTALL_TARGET"` grep for `<title>` | Real                                |
-| `rclone` | `rclone lsf` against remote dest, match each member     | Real                                |
-| `rsync`  | TODO: `ssh` + stat or `rsync --dry-run`                 | Stub (always returns "not present") |
+| Adapter  | Check                                                                | Status |
+| -------- | -------------------------------------------------------------------- | ------ |
+| `lvol`   | `test -e "$LVOL_MOUNT_POINT/$dest/<contained>"`                      | Real   |
+| `ftp`    | `curl --list-only` against FTP dest, match each member               | Real   |
+| `hdl`    | `hdl_dump toc "$HDL_INSTALL_TARGET"` grep for `<title>`              | Real   |
+| `rclone` | `rclone lsf` against remote dest, match each member                  | Real   |
+| `rsync`  | `rsync --list-only` against remote/local dest, match each member     | Real   |
 
-Stub/TODO checks are pessimistic by design: they always proceed with work
-rather than risk a false skip.
+Per-adapter checks are pessimistic when the required tooling or config is
+absent — missing `rsync`, `rclone`, `curl`, or the relevant `*_HOST`/`*_REMOTE`
+variables falls through to "not present" rather than risking a false skip.
 
 ---
 

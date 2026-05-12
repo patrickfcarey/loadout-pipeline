@@ -651,16 +651,19 @@ rm -rf "$A4_SHIM_ROOT" "$A4_LOG"
 #
 # Previously the ftp adapter inlined $FTP_USER, $FTP_PASS, $src, and
 # $remote_path unquoted into lftp's command stream. A space in $src (allowed
-# by the iso_path regex) split `mirror`'s arguments; a comma in $FTP_PASS
-# corrupted `open -u user,pass`. The fix passes creds via
-# `set ftp:default-{user,password}` (both inside lftp's scripting language,
-# heredoc'd on stdin) and double-quotes the paths within the lftp script so
-# lftp tokenises them as single args.
+# by the iso_path regex) split `mirror`'s arguments. The fix double-quotes
+# the paths within the lftp script (so lftp tokenises them as single args)
+# and passes credentials through lftp's heredoc on stdin via
+# `open -u "$FTP_USER,$FTP_PASS"` — never via the lftp process argv. See
+# the comment block in adapters/ftp.sh for why `set ftp:default-{user,password}`
+# is not a real lftp variable pair (`set -a` on any lftp build confirms it).
 #
 # Validation:
 #   (a) Source path with a space reaches lftp as a single token.
-#   (b) Credentials are NOT passed on lftp's argv.
-#   (c) The heredoc contains `set ftp:default-user "<user>"` form.
+#   (b) Credentials are NOT passed on lftp's argv (the only path a casual
+#       `ps aux` would expose them on).
+#   (c) The heredoc contains `open -u "<user>,<pass>"` with the user and
+#       password tokenised as a single argv entry to lftp's `open` builtin.
 
 header "Test F1: ftp.sh lftp quoting + credentials hidden from argv"
 
@@ -682,12 +685,17 @@ F1_ARGV="$F1_ROOT/argv.txt"
 F1_STDIN="$F1_ROOT/stdin.txt"
 F1_LOG=$(mktemp)
 F1_RC=0
+# FTP_PASS is comma-free here because lftp's `open -u user,pass` form uses
+# the comma as the user/password separator — adapters/ftp.sh documents this
+# as a known limitation of the heredoc-credentials approach. Operators with
+# comma-bearing passwords must escape them via lftp's URL form or supply
+# credentials through ~/.netrc instead.
 env -u ALLOW_STUB_ADAPTERS \
     PATH="$F1_ROOT:$PATH" \
     F1_ARGV="$F1_ARGV" F1_STDIN="$F1_STDIN" \
     FTP_HOST="ftp.example.test" \
     FTP_USER="bob" \
-    FTP_PASS="hunter2,with,commas" \
+    FTP_PASS="hunter2" \
     FTP_PORT=21 \
     bash "$ROOT_DIR/adapters/ftp.sh" "$F1_SRC" "remote/games/x" \
     >"$F1_LOG" 2>&1 || F1_RC=$?
@@ -707,17 +715,11 @@ if [[ -f "$F1_STDIN" ]]; then
         fail "F1 mirror args not quoted as expected"
         sed 's/^/      /' "$F1_STDIN"
     fi
-    # (c) Creds live in `set ftp:default-...` form, double-quoted.
-    if grep -qF 'set ftp:default-user "bob"' "$F1_STDIN"; then
-        pass "F1 FTP_USER passed via set ftp:default-user"
+    # (c) Credentials live in `open -u "<user>,<pass>"` form on lftp's stdin.
+    if grep -qF 'open -u "bob,hunter2"' "$F1_STDIN"; then
+        pass "F1 credentials passed via heredoc open -u (single double-quoted arg)"
     else
-        fail "F1 missing set ftp:default-user line"
-        sed 's/^/      /' "$F1_STDIN"
-    fi
-    if grep -qF 'set ftp:default-password "hunter2,with,commas"' "$F1_STDIN"; then
-        pass "F1 FTP_PASS with commas passed intact via set ftp:default-password"
-    else
-        fail "F1 FTP_PASS either missing or mangled"
+        fail "F1 missing open -u \"bob,hunter2\" line in heredoc"
         sed 's/^/      /' "$F1_STDIN"
     fi
 else
@@ -725,7 +727,8 @@ else
 fi
 
 if [[ -f "$F1_ARGV" ]]; then
-    # (b) No credentials on argv.
+    # (b) No credentials on argv. This is the only path a `ps aux` snapshot
+    #     would expose creds on; the heredoc/stdin form is invisible there.
     if grep -q 'bob' "$F1_ARGV" || grep -q 'hunter2' "$F1_ARGV"; then
         fail "F1 credentials leaked to lftp argv: $(cat "$F1_ARGV")"
     else

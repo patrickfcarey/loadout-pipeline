@@ -357,7 +357,7 @@ All available variables (see `.env.example` for the full annotated reference):
 | ------------------ | ----------- | ---------------------------------------------------- |
 | `LVOL_MOUNT_POINT` | `/mnt/lvol` | Root destination directory (any writable local path) |
 
-**FTP adapter** (`adapters/ftp.sh`) — stub
+**FTP adapter** (`adapters/ftp.sh`) — **implemented**
 
 | Variable   | Default | Description         |
 | ---------- | ------- | ------------------- |
@@ -376,13 +376,14 @@ All available variables (see `.env.example` for the full annotated reference):
 
 Per-job fields (disc format and PS2 title) come from the `.jobs` line — see the Jobs file format section for the 4-field hdl syntax. `hdl_dump` resolves `HDL_INSTALL_TARGET` via the operator's own `~/.hdl_dump.conf`; the adapter does not rewrite `HOME` or fabricate a scratch config.
 
-**rclone adapter** (`adapters/rclone.sh`) — stub
+**rclone adapter** (`adapters/rclone.sh`) — **implemented**
 
 | Variable           | Default | Description                                                   |
 | ------------------ | ------- | ------------------------------------------------------------- |
 | `RCLONE_REMOTE`    |         | Remote name as configured in `rclone config` (e.g. `gdrive:`) |
 | `RCLONE_DEST_BASE` |         | Base path on the remote, prepended to the job's destination   |
 | `RCLONE_FLAGS`     |         | Extra flags passed through to `rclone copy`                   |
+| `RCLONE_CONFIG`    |         | Path to `rclone.conf`; forwarded as `--config` if set         |
 
 **rsync adapter** (`adapters/rsync.sh`) — **implemented**
 
@@ -1025,16 +1026,22 @@ The three fields (`iso_path`, `adapter_type`, `adapter_destination`) are frozen.
 | Adapter   | Key      | Status          | Env vars required                                                              |
 | --------- | -------- | --------------- | ------------------------------------------------------------------------------ |
 | Local vol | `lvol`   | **Implemented** | `LVOL_MOUNT_POINT`                                                             |
-| FTP       | `ftp`    | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
-| HDL dump  | `hdl`    | **Implemented** | `HDL_DUMP_BIN`                                                                 |
-| rclone    | `rclone` | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                            |
+| FTP       | `ftp`    | **Implemented** | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
+| HDL dump  | `hdl`    | **Implemented** | `HDL_DUMP_BIN`, `HDL_INSTALL_TARGET`                                           |
+| rclone    | `rclone` | **Implemented** | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`, `RCLONE_CONFIG`           |
 | rsync     | `rsync`  | **Implemented** | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` |
 
-Each adapter lives at `adapters/<key>.sh` (e.g. `hdl` → `adapters/hdl_dump.sh`). Stub adapters log what they would do but do not transfer any files. Each stub script contains implementation notes and a `TODO` marker showing where to add real transfer logic.
+Each adapter lives at `adapters/<key>.sh` (e.g. `hdl` → `adapters/hdl_dump.sh`). All five adapters are real implementations that perform actual transfers when their required configuration is set. As an opt-in fallback for development and CI environments, `ALLOW_STUB_ADAPTERS=1` causes `ftp`, `rclone`, and `hdl` to no-op (instead of failing) when their required dependency is unavailable — `ftp` stubs when `FTP_HOST` is unset, `rclone` stubs when `RCLONE_REMOTE` is unset, and `hdl` stubs when the `hdl_dump` binary is not on `PATH`. Without `ALLOW_STUB_ADAPTERS=1`, missing configuration is a hard error (`exit 1`).
 
-The local volume adapter (`adapters/lvol.sh`) is fully implemented: it validates `LVOL_MOUNT_POINT`, creates the destination directory, and uses `rsync -a` (falling back to `cp -r` if rsync is unavailable) to copy the extracted contents. `LVOL_MOUNT_POINT` can be any writable local directory — an SD card, a USB drive, an NVMe/SSD/HDD enclosure, a NAS mount, or a plain folder.
+The local volume adapter (`adapters/lvol.sh`) validates `LVOL_MOUNT_POINT`, creates the destination directory, and uses `rsync -a` (falling back to `cp -r` if rsync is unavailable) to copy the extracted contents. `LVOL_MOUNT_POINT` can be any writable local directory — an SD card, a USB drive, an NVMe/SSD/HDD enclosure, a NAS mount, or a plain folder.
 
-The rsync adapter (`adapters/rsync.sh`) is fully implemented: it supports both local and remote transfers via `RSYNC_HOST`, builds destination paths under `RSYNC_DEST_BASE`, and uses resumable, checksum-verified, compressed rsync with configurable flags via `RSYNC_FLAGS`.
+The FTP adapter (`adapters/ftp.sh`) uploads via `lftp mirror -R --continue` with passive mode and automatic reconnect; credentials flow through `lftp`'s `open -u` heredoc so they never appear on a process argv.
+
+The HDL dump adapter (`adapters/hdl_dump.sh`) injects PS2 ISOs onto an HDLoader-format HDD via `hdl_dump inject_cd` / `inject_dvd`, parsing the 4-field hdl job line (`<iso>|hdl|<cd|dvd>|<title>`).
+
+The rclone adapter (`adapters/rclone.sh`) transfers to any rclone-supported remote (S3, GDrive, Dropbox, SFTP, …) via `rclone copy --progress`, honouring extra flags through `RCLONE_FLAGS` and an optional explicit config path through `RCLONE_CONFIG`.
+
+The rsync adapter (`adapters/rsync.sh`) supports both local and remote (SSH) transfers via `RSYNC_HOST`, builds destination paths under `RSYNC_DEST_BASE`, and uses resumable, checksum-verified, compressed rsync with configurable flags via `RSYNC_FLAGS`.
 
 To add a new adapter: create `adapters/<name>.sh`, add a matching case to `lib/dispatch.sh` and `lib/precheck.sh`, and extend the regex in `lib/jobs.sh`.
 
@@ -1087,7 +1094,7 @@ bash test/fixtures/create_fixtures.sh
 bash test/run_tests.sh
 ```
 
-The suite runs **107 test cases (467 assertions)** covering: default run, single worker (`MAX_UNZIP=1`), more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (`.bin` + `.cue`), partial-hit precheck, mid-extract failure + cleanup, rerun after failure, concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit test, rclone/rsync/ftp adapter end-to-end and validation tests, adapter stub fallback behaviour, intra-run orphan recovery via the worker registry, phantom ledger GC after SIGKILL, mid-string `/../` rejection in the job-line parser, a real 196 MB PS2 game archive exercising spaces and parentheses in the iso path (Test 21 — **hard-fails when the archive is absent** — place it at `test/fixtures/isos/Ultimate Board Game Collection (USA).7z`), and regression pins for C1 (basename `.`), C2 (`_space_dev` infinite loop), H1 (queue_pop exit code), and M3 (worker registry consecutive-space preservation).
+The suite runs **121 test cases (508 assertions)** covering: default run, single worker (`MAX_UNZIP=1`), more workers than jobs, custom `QUEUE_DIR`, idempotent re-runs, custom `EXTRACT_DIR`, SD precheck skip, multi-file archive (`.bin` + `.cue`), partial-hit precheck, mid-extract failure + cleanup, rerun after failure, concurrent space reservation under scarcity, SIGKILL'd extract + spool cleanup + rerun, worker registry unit test, rclone/rsync/ftp adapter end-to-end and validation tests, adapter stub fallback behaviour, intra-run orphan recovery via the worker registry, phantom ledger GC after SIGKILL, mid-string `/../` rejection in the job-line parser, a real 196 MB PS2 game archive exercising spaces and parentheses in the iso path (Test 21 — **hard-fails when the archive is absent** — place it at `test/fixtures/isos/Ultimate Board Game Collection (USA).7z`), and regression pins for C1 (basename `.`), C2 (`_space_dev` infinite loop), H1 (queue_pop exit code), and M3 (worker registry consecutive-space preservation).
 
 To validate that every assertion in the suite can actually detect a failure (61 mutation checks):
 
@@ -1127,7 +1134,7 @@ This builds a privileged container, generates synthetic fixtures, provisions all
 
 ## Architecture
 
-See `docs/architecture.md` for the full pipeline diagram, [`docs/requirements/`](docs/requirements/index.md) for per-function contracts, and `ai_agent_entry_point.md` for AI agent onboarding.
+See `docs/architecture.md` for the full pipeline diagram, [`docs/requirements/`](docs/requirements/index.md) for per-function contracts, [`docs/operator_acceptance.md`](docs/operator_acceptance.md) for the manual end-to-end checklist a real operator runs once against real hardware before trusting a deployment in production, [`docs/release_checklist.md`](docs/release_checklist.md) for the full procedure for cutting a tagged release, and `ai_agent_entry_point.md` for AI agent onboarding.
 
 ---
 

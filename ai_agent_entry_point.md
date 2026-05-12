@@ -14,7 +14,7 @@ This document is the primary onboarding reference for AI agents working on the `
 - **Shared space reservation ledger** (`lib/space.sh`) — `flock`-guarded so concurrent workers never collectively over-commit scratch space
 - **Per-run scratch spool isolation** (`COPY_SPOOL=$COPY_DIR/$$`) with a startup sweep of dead-PID subdirs
 - **Intra-run recovery of SIGKILL'd workers** via a worker registry (`lib/worker_registry.sh`) and a recovery loop in `workers_start` capped at `MAX_RECOVERY_ATTEMPTS`
-- **Multiple dispatch adapters**: FTP (stub), HDL dump (**implemented**), local volume (**implemented**), rclone (stub), rsync (**implemented**)
+- **Multiple dispatch adapters** (all implemented): FTP (lftp), HDL dump (PS2 hdl_dump injector), local volume (rsync/cp), rclone (any rclone remote), rsync (local or SSH). Adapters with optional dependencies (`ftp`, `rclone`, `hdl`) honour `ALLOW_STUB_ADAPTERS=1` as an opt-in no-op fallback for dev/CI hosts.
 - **Pluggable adapter architecture** — add a new `adapters/<name>.sh` + case arms in `lib/dispatch.sh` and `lib/precheck.sh` + a key in the `lib/jobs.sh` regex
 - **Structured logging** controlled by `DEBUG_IND`
 
@@ -78,7 +78,7 @@ Any helper function whose behavior is pinned by a unit test in `test/suites/14_`
 
 ### Verification
 
-Before merging any change, run `bash test/run_tests.sh` and confirm the assertion count is **≥ 458** (today's baseline) with **0 failures**. A dropping assertion count means a pinned behavior has been silently removed — investigate before merging.
+Before merging any change, run `bash test/run_tests.sh` and confirm the assertion count is **≥ 508** (today's baseline) with **0 failures** — except for Test 21 ("real archive" hard-fail-when-absent), which is allowed to fail when `test/fixtures/isos/Ultimate Board Game Collection (USA).7z` is not on disk. A dropping assertion count means a pinned behavior has been silently removed — investigate before merging.
 
 ---
 
@@ -117,7 +117,10 @@ loadout-pipeline/
 ├── docs/
 │   ├── requirements/          # Per-function contract (authoritative spec)
 │   │   └── index.md           # Subsystem table + alphabetical function index
-│   └── architecture.md
+│   ├── architecture.md
+│   ├── operator_acceptance.md # Manual operator-walkthrough test plan (1.0 sign-off)
+│   ├── release_checklist.md   # Full release-cut procedure (OAT → tag → CHANGELOG)
+│   └── hdl_auto_features_research.md  # Research notes: porting HDL-Batch-installer's auto-name + auto-media features (v1.1+ candidate, not a 1.0 blocker)
 ├── test/
 │   ├── run_tests.sh           # Test runner (105 test cases, 458 assertions)
 │   ├── validate_tests.sh      # Mutation validation (57 V-checks)
@@ -292,13 +295,13 @@ source "$ROOT_DIR/lib/workers.sh"
 
 | Adapter   | Key      | Script                 | Status          | Required env vars                                                              |
 | --------- | -------- | ---------------------- | --------------- | ------------------------------------------------------------------------------ |
-| FTP       | `ftp`    | `adapters/ftp.sh`      | Stub            | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
+| FTP       | `ftp`    | `adapters/ftp.sh`      | **Implemented** | `FTP_HOST`, `FTP_USER`, `FTP_PASS`, `FTP_PORT`                                 |
 | HDL dump  | `hdl`    | `adapters/hdl_dump.sh` | **Implemented** | `HDL_DUMP_BIN`, `HDL_HOST_DEVICE`, `HDL_INSTALL_TARGET`                        |
 | Local vol | `lvol`   | `adapters/lvol.sh`     | **Implemented** | `LVOL_MOUNT_POINT`                                                             |
-| rclone    | `rclone` | `adapters/rclone.sh`   | Stub            | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`                            |
+| rclone    | `rclone` | `adapters/rclone.sh`   | **Implemented** | `RCLONE_REMOTE`, `RCLONE_DEST_BASE`, `RCLONE_FLAGS`, `RCLONE_CONFIG`           |
 | rsync     | `rsync`  | `adapters/rsync.sh`    | **Implemented** | `RSYNC_DEST_BASE`, `RSYNC_HOST`, `RSYNC_USER`, `RSYNC_SSH_PORT`, `RSYNC_FLAGS` |
 
-Stub adapters (ftp, rclone) log what they would do but do not transfer files. The local volume adapter is fully implemented: it validates `LVOL_MOUNT_POINT`, performs a path-containment check against the mount root, and copies using `rsync -a` (with a `cp -r` fallback when rsync is unavailable). It works with SD cards, USB drives, NVMe/SSD/HDD enclosures, or any locally-mounted path. The rsync adapter is also fully implemented: it transfers files via `rsync -avzc --partial --append-verify` with support for both local and remote (SSH) destinations. The hdl_dump adapter is implemented: it unpacks the 4-field hdl job line (`<iso>|hdl|<cd|dvd>|<title>`) via `parse_hdl_destination` and invokes `hdl_dump inject_cd`/`inject_dvd "$HDL_INSTALL_TARGET" <title> <iso>`. The PS2 device designators are operator-wide env vars, not per-job fields: `HDL_INSTALL_TARGET` (e.g. `hdd0:`) is the inject target, and `HDL_HOST_DEVICE` (e.g. `sri:`) is a startup-probe target that `bin/loadout-pipeline.sh` uses to fail fast if `hdl_dump toc` cannot reach the HDD. The adapter relies on the operator's real `~/.hdl_dump.conf` for `<device>:` → host-path resolution; no scratch-HOME redirection is used.
+All five adapters are real implementations that perform actual transfers when configured. As an opt-in fallback for dev/CI hosts, `ALLOW_STUB_ADAPTERS=1` causes `ftp` to no-op when `FTP_HOST` is unset, `rclone` to no-op when `RCLONE_REMOTE` is unset, and `hdl` to no-op when the `hdl_dump` binary is not on `PATH`. Without that flag, missing required configuration is a hard error (`exit 1`). The local volume adapter validates `LVOL_MOUNT_POINT`, performs a path-containment check against the mount root, and copies using `rsync -a` (with a `cp -r` fallback when rsync is unavailable). It works with SD cards, USB drives, NVMe/SSD/HDD enclosures, or any locally-mounted path. The FTP adapter uploads via `lftp mirror -R --continue` with passive mode and reconnect; credentials flow through `lftp`'s `open -u` heredoc rather than the process argv. The rclone adapter transfers via `rclone copy --progress` to any rclone-supported remote and honours an optional `RCLONE_CONFIG` for explicit `--config` paths. The rsync adapter is also fully implemented: it transfers files via `rsync -avzc --partial --append-verify` with support for both local and remote (SSH) destinations. The hdl_dump adapter unpacks the 4-field hdl job line (`<iso>|hdl|<cd|dvd>|<title>`) via `parse_hdl_destination` and invokes `hdl_dump inject_cd`/`inject_dvd "$HDL_INSTALL_TARGET" <title> <iso>`. The PS2 device designators are operator-wide env vars, not per-job fields: `HDL_INSTALL_TARGET` (e.g. `hdd0:`) is the inject target, and `HDL_HOST_DEVICE` (e.g. `sri:`) is a startup-probe target that `bin/loadout-pipeline.sh` uses to fail fast if `hdl_dump toc` cannot reach the HDD. The adapter relies on the operator's real `~/.hdl_dump.conf` for `<device>:` → host-path resolution; no scratch-HOME redirection is used.
 
 Each adapter receives `$1` = source directory (extracted contents) and `$2` = adapter-specific destination.
 
@@ -322,7 +325,7 @@ To add a new adapter:
 - **Any worker touching the extract queue** must bracket its work with `worker_job_begin` / `worker_job_end` so intra-run recovery can detect orphans.
 - **`COPY_SPOOL` is the per-run scratch dir** — `extract.sh` reads `${COPY_SPOOL:-$COPY_DIR}`. Never hard-code `COPY_DIR` as a destination.
 - **Strip list runs before dispatch** — after successful extraction, `extract.sh` deletes any filenames listed in `EXTRACT_STRIP_LIST` (default `strip.list`) from the extracted directory before pushing to the dispatch queue. `precheck.sh` is strip-list aware and does not require stripped files to be present at the destination.
-- **Local volume adapter is fully implemented** — all other adapters are stubs. See the `TODO` markers in each stub for implementation guidance.
+- **All five adapters are implemented.** `ftp`, `rclone`, and `hdl` honour `ALLOW_STUB_ADAPTERS=1` as an opt-in no-op fallback when their optional dependency (host config / binary on PATH) is unavailable; without that flag, missing required configuration is a hard error.
 - **Credentials are scoped per adapter** — `lib/dispatch.sh` uses `env -u` to strip every other adapter's env vars before forking the target adapter. Only the vars the active adapter needs are visible to it.
 
 ---

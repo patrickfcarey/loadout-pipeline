@@ -30,8 +30,9 @@
 #          supplied PS2 title.
 #   rclone — uses `rclone lsf` against RCLONE_REMOTE/$dest and checks every
 #          archive member.
-#   rsync — STUB: always returns "not present". Real impl would ssh to
-#          RSYNC_HOST and stat each member, or use `rsync --dry-run`.
+#   rsync — uses `rsync --list-only` against RSYNC_DEST_BASE/$dest (over SSH
+#          when RSYNC_HOST is set, locally otherwise) and checks every
+#          archive member.
 #
 # Remote-adapter checks are pessimistic: if the required tooling/config is
 # absent they fall through to "not present" rather than risk a false skip.
@@ -289,9 +290,69 @@ case "$adapter" in
         fi
         ;;
     rsync)
-        # TODO: real check — ssh to RSYNC_HOST and stat each member, or use
-        # `rsync --dry-run` to detect what would be transferred.
-        already_present=0
+        # rsync precheck: list the destination directory with `rsync --list-only`
+        # — same transport the adapter uses, so a remote (RSYNC_HOST) listing
+        # rides over the same SSH config (port, key, known_hosts) as the real
+        # transfer. Local (RSYNC_HOST unset) uses a plain rsync read against
+        # the local filesystem. Falls through to "not present" when the
+        # destination is missing, the listing fails, or rsync is unavailable
+        # — pessimistic by design like the other remote adapters.
+        if [[ -z "${RSYNC_DEST_BASE:-}" ]] || ! command -v rsync >/dev/null 2>&1; then
+            already_present=0
+        else
+            dest_base="${RSYNC_DEST_BASE%/}"
+            dest_clean="${dest#/}"
+            target_path="${dest_base}/${dest_clean}"
+
+            rsync_list_args=(--list-only)
+            if [[ -n "${RSYNC_HOST:-}" ]]; then
+                rsync_list_args+=(-e "ssh -p ${RSYNC_SSH_PORT:-22}")
+                list_target="${RSYNC_USER:+${RSYNC_USER}@}${RSYNC_HOST}:${target_path}/"
+            else
+                list_target="${target_path}/"
+            fi
+            set +e
+            remote_listing=$(rsync "${rsync_list_args[@]}" "$list_target" 2>/dev/null)
+            set -e
+            if [[ -z "$remote_listing" ]]; then
+                already_present=0
+            else
+                # `rsync --list-only` formats each row as
+                #   <perm-bits> <size> <date> <time> <filename>
+                # with whitespace-aligned columns. The size column never
+                # contains whitespace (commas are used as the thousands
+                # separator), so stripping four leading whitespace-delimited
+                # columns reliably recovers the filename even when it
+                # contains spaces (e.g. "Tony Hawk's Pro Skater"). Drop
+                # directory entries (perm bits starting with 'd') including
+                # the synthetic "." row that rsync emits for the listed
+                # directory itself; archive members we match against are
+                # always regular files.
+                remote_files=$(echo "$remote_listing" | awk '$1 !~ /^d/ {
+                    line = $0
+                    for (i = 0; i < 4; i++) sub(/^[ \t]*[^ \t]+[ \t]+/, "", line)
+                    print line
+                }')
+                all_there=1
+                while IFS= read -r f; do
+                    [[ -z "$f" ]] && continue
+                    if ! _precheck_member_is_safe "$f"; then
+                        log_warn "precheck: archive $archive contains unsafe member path — refusing to probe: $f"
+                        exit 2
+                    fi
+                    strip_list_contains "$f" && continue
+                    # Whole-line match (-x) with fixed-string (-F) and end-of-arg
+                    # marker (--) so a member "disc1" does NOT falsely match
+                    # a remote file "disc10". `rsync --list-only` emits one
+                    # filename per row (after the four-column strip above).
+                    if ! echo "$remote_files" | grep -qxF -- "$f"; then
+                        all_there=0
+                        break
+                    fi
+                done <<< "$contained"
+                already_present=$all_there
+            fi
+        fi
         ;;
     *)
         log_warn "precheck: unknown adapter: $adapter"
