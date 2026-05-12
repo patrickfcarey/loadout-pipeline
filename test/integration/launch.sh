@@ -19,19 +19,26 @@
 # it receives mounts and env vars exactly as a real user would provide.
 #
 # Requirements on the host:
-#   - Docker (or Podman with --privileged support)
+#   - Docker (or Podman) with ROOTFUL access. The suite uses --privileged
+#     for loop devices, mount, and mkfs.vfat. Rootless podman / rootless
+#     Docker cannot grant host-level CAP_SYS_ADMIN, which the loop-device
+#     allocator (LOOP_CTL_GET_FREE ioctl on /dev/loop-control) requires.
+#     The script detects rootless runtimes early and exits with a clear
+#     error rather than failing mid-bootstrap after a 2–3 minute build.
 #   - A kernel that has the `loop` and `vfat` modules available
 #     (any stock Linux kernel; on WSL2 loop works, vfat requires the
 #     distro-provided kernel — `uname -r` should contain `-microsoft`)
 #
 # Usage:
-#   bash test/integration/launch.sh                        # default run
-#   INT_IMAGE_TAG=mytag bash test/integration/launch.sh
-#   INT_DOCKER=podman bash test/integration/launch.sh
-#   INT_PROD_IMAGE_TAG=myrepo/loadout:dev bash test/integration/launch.sh
+#   sudo bash test/integration/launch.sh                   # typical local run
+#   bash test/integration/launch.sh                        # works if your $DOCKER is rootful
+#   INT_IMAGE_TAG=mytag sudo -E bash test/integration/launch.sh
+#   INT_DOCKER=podman sudo -E bash test/integration/launch.sh
+#   INT_PROD_IMAGE_TAG=myrepo/loadout:dev sudo -E bash test/integration/launch.sh
 #
 # The suite is intentionally NOT silent-skippable on the host — if Docker
-# is missing we fail loudly. The test-21 philosophy: no silent success.
+# is missing, or the runtime is rootless, we fail loudly. The test-21
+# philosophy: no silent success.
 
 set -euo pipefail
 
@@ -51,6 +58,40 @@ if ! command -v "$DOCKER" >/dev/null 2>&1; then
     echo "[launch] ERROR: '$DOCKER' not found on PATH." >&2
     echo "[launch]        Install Docker or set INT_DOCKER=podman." >&2
     exit 2
+fi
+
+# ── early rootless-runtime guard ─────────────────────────────────────────────
+# The integration suite needs host-level CAP_SYS_ADMIN to allocate loop devices
+# via /dev/loop-control. Rootless podman cannot grant this even with
+# --privileged, because the LOOP_CTL_GET_FREE ioctl checks the HOST capability
+# set, not the user-namespace one. Without this check the suite would build
+# two Docker images (2–3 minutes) and then fail in substrate bootstrap with a
+# confusing "losetup: Permission denied" — fail fast instead.
+#
+# Detection: only complain when EUID != 0 (root-via-sudo always works), and
+# only when the runtime's own `info` reports rootless. This matches both
+# `rootless: true` (podman info) and `name=rootless` (docker info).
+if [[ $EUID -ne 0 ]]; then
+    runtime_info="$("$DOCKER" info 2>&1 || true)"
+    if echo "$runtime_info" | grep -qiE 'rootless: *true|name=rootless'; then
+        cat >&2 <<EOF
+[launch] ERROR: detected rootless container runtime ($DOCKER).
+[launch]
+[launch] The integration suite uses --privileged for loop devices, mount,
+[launch] and mkfs.vfat. Rootless podman / rootless Docker cannot grant the
+[launch] host-level CAP_SYS_ADMIN that /dev/loop-control allocation requires,
+[launch] so the substrate bootstrap will fail mid-run with:
+[launch]
+[launch]   losetup: cannot find an unused loop device: Permission denied
+[launch]
+[launch] Fix: rerun as root.
+[launch]
+[launch]   sudo bash test/integration/launch.sh
+[launch]
+[launch] (Or install rootful Docker and set INT_DOCKER=/path/to/rootful-docker.)
+EOF
+        exit 2
+    fi
 fi
 
 PROD_IMAGE_TAG="${INT_PROD_IMAGE_TAG:-loadout-pipeline:latest}"
