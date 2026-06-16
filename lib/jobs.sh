@@ -128,11 +128,11 @@ load_jobs() {
         #
         # Store the pattern in a variable. bash recommends this when the ERE
         # contains spaces so the pattern is not subject to word-splitting.
-        local _job_regex='^~/[A-Za-z0-9_./ ()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ ()-]*)*~$'
+        local _job_regex='^~/[A-Za-z0-9_./ ()'"'"',+&!-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ ()-]*)*~$'
         if [[ ! "$line" =~ $_job_regex ]]; then
             log_error "invalid job at line $lineno: '$line'"
             log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|lvol|rclone|rsync)|destination~"
-            log_error "iso_path chars : letters, digits, _ . / - space ( )"
+            log_error "iso_path chars : letters, digits, _ . / - space ( ) , ' + & !"
             log_error "destination chars: letters, digits, _ . / -"
             return 1
         fi
