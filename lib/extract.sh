@@ -195,7 +195,7 @@ if [[ -z "$name" || "$name" == "." || "$name" == ".." || "$name" == .* ]]; then
     log_error "extract: refusing invalid archive basename: '$name' (from $archive)"
     exit 1
 fi
-out_dir="${EXTRACT_DIR}/$name"
+out_dir="${EXTRACT_SPOOL:-$EXTRACT_DIR}/$name"
 _out_dir="$out_dir"
 
 # Guard: if $out_dir already exists as a symlink, an attacker could redirect
