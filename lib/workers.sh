@@ -70,6 +70,24 @@ _spool_sweep_and_claim() {
     # A cheap unconditional rm -rf guarantees a clean spool before first use.
     _spool_guarded_rm_rf "$COPY_SPOOL"
     mkdir -p "$COPY_SPOOL"
+
+    # Per-run isolation for the EXTRACT spool, mirroring COPY_SPOOL above.
+    # Without it, two archives that share a basename across systems (e.g.
+    # "Mario Golf (USA).7z" on both gbc and n64), deployed by separate engine
+    # runs, extract into the same $EXTRACT_DIR/<name> and the dispatch copies
+    # BOTH files to the later system's destination. Namespacing the extract
+    # output under $EXTRACT_DIR/<pid> makes every run's extractions disjoint.
+    local ebase="$EXTRACT_DIR" esub epid
+    mkdir -p "$ebase"
+    while IFS= read -r esub; do
+        epid="$(basename "$esub")"
+        if [[ "$epid" =~ ^[0-9]+$ ]] && ! kill -0 "$epid" 2>/dev/null; then
+            _spool_guarded_rm_rf "$esub"
+        fi
+    done < <(find "$ebase" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+    export EXTRACT_SPOOL="$ebase/$$"
+    _spool_guarded_rm_rf "$EXTRACT_SPOOL"
+    mkdir -p "$EXTRACT_SPOOL"
 }
 
 # ─── _spool_guarded_rm_rf ─────────────────────────────────────────────────────
@@ -95,8 +113,8 @@ _spool_guarded_rm_rf() {
     esac
     parent="$(dirname  "$path")"
     name="$(basename "$path")"
-    if [[ "$parent" != "$COPY_DIR" || ! "$name" =~ ^[0-9]+$ ]]; then
-        log_error "spool guard: refusing rm of '$path' (parent='$parent' name='$name' not under COPY_DIR/<pid>)"
+    if [[ ( "$parent" != "$COPY_DIR" && "$parent" != "$EXTRACT_DIR" ) || ! "$name" =~ ^[0-9]+$ ]]; then
+        log_error "spool guard: refusing rm of '$path' (parent='$parent' name='$name' not under COPY_DIR|EXTRACT_DIR/<pid>)"
         return 1
     fi
     rm -rf -- "$path"
@@ -341,7 +359,7 @@ workers_start() {
     # would leak the per-run spool until the next pipeline run's sweep
     # caught it (and even then only if the reused PID weren't alive).
     # shellcheck disable=SC2064  # intentional early expansion of $COPY_SPOOL
-    trap "_spool_guarded_rm_rf '$COPY_SPOOL'" EXIT
+    trap "_spool_guarded_rm_rf '$COPY_SPOOL'; _spool_guarded_rm_rf '$EXTRACT_SPOOL'" EXIT
 
     # Resume planner: drop jobs whose content is already fully present at the
     # adapter destination before any worker forks. Runs in the quiescent
