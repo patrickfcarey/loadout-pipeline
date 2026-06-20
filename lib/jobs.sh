@@ -121,18 +121,24 @@ load_jobs() {
         # Validation rules:
         #   iso_path    — absolute path to a .7z archive on the local filesystem.
         #                 Allowed: letters, digits, _ . / - and ALSO spaces,
-        #                 parentheses, and apostrophes, because standard game ISO
-        #                 naming conventions (e.g. "Tony Hawk's Pro Skater.7z" or
-        #                 "Ultimate Board Game Collection (USA).7z") commonly
+        #                 parentheses, apostrophes, and commas, because standard
+        #                 game ISO naming conventions (e.g. "Tony Hawk's Pro
+        #                 Skater.7z" or No-Intro multi-language tags like
+        #                 "Sonic Heroes (USA) (En,Ja,Fr,De,Es,It).7z") commonly
         #                 include them. Every pipeline code path double-quotes
         #                 $archive, so apostrophes and the other extras are safe.
         #   adapter     — one of: ftp  hdl  lvol  rclone  rsync
-        #   destination — adapter-specific target path. More restrictive than
-        #                 iso_path: spaces, parens, and apostrophes are NOT allowed
-        #                 here because adapter destinations may be passed to external
-        #                 tools (rsync, rclone, lftp) whose quoting behaviour varies
-        #                 and because remote paths rarely need those characters.
-        #                 Allowed: letters, digits, _ . / -
+        #   destination — adapter-specific target path. Allows the same character
+        #                 class as iso_path (letters, digits, _ . / - space ( ) '
+        #                 and commas) so a folder-style target can carry the title,
+        #                 e.g. a PS3 webMAN JB game at "dev_hdd0/GAMES/Sonic Heroes
+        #                 (USA) (En,Ja,Fr,De,Es,It)". Every in-tree adapter double-
+        #                 quotes the destination before handing it to its external
+        #                 tool AND enforces its own sandbox/'..' guard, so the extra
+        #                 characters are safe. (rsync remote-path escaping is the one
+        #                 quoting edge case — keep rsync dests space-free if you add
+        #                 an rsync target.)
+        #                 Allowed: letters, digits, _ . / - space ( ) ' ,
         #                 Exception: the hdl title sub-field (third pipe onward)
         #                 accepts a broader character class because real PS2
         #                 titles contain spaces, parens, apostrophes, ampersands
@@ -152,13 +158,13 @@ load_jobs() {
         # quoted pattern by closing, escaping, and re-opening the string.
         # Dash (-) is placed last inside each bracket expression so it is
         # interpreted literally, not as a range marker.
-        local _job_regex='^~/[A-Za-z0-9_./ '"'"'()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_./-]+(\|[A-Za-z0-9_./ '"'"'&:()-]*)*~$'
+        local _job_regex='^~/[A-Za-z0-9_,./ '"'"'()-]+\.7z\|(ftp|hdl|lvol|rclone|rsync)\|[A-Za-z0-9_,./ '"'"'()-]+(\|[A-Za-z0-9_,./ '"'"'&:()-]*)*~$'
         if [[ ! "$line" =~ $_job_regex ]]; then
             log_error "invalid job at line $lineno: '$line'"
             log_error "expected format: ~/absolute/path/to/archive.7z|(ftp|hdl|lvol|rclone|rsync)|destination~"
-            log_error "iso_path chars : letters, digits, _ . / - space ( ) '"
-            log_error "destination chars: letters, digits, _ . / -"
-            log_error "trailing-field (e.g. hdl title) also allows: space ( ) ' & :"
+            log_error "iso_path chars : letters, digits, _ . / - space ( ) ' ,"
+            log_error "destination chars: letters, digits, _ . / - space ( ) ' ,"
+            log_error "trailing-field (e.g. hdl title) also allows: space ( ) ' & : ,"
             return 1
         fi
 
