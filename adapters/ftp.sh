@@ -84,10 +84,27 @@ echo "[ftp] Transferring $src → ftp://$FTP_HOST:$port$remote_path"
 # the open argv. The heredoc form keeps creds off the lftp process's own
 # argv, which was the other motivation for moving away from `-e`.
 
+# ── lftp tuning for homebrew console FTP servers (PS3 webMAN/multiMAN) ────────
+# These servers are PLAIN ftp with a single control connection and no TLS:
+#   * ssl-allow no / ssl-force no — lftp otherwise opportunistically issues
+#     AUTH TLS when the server's FEAT reply looks TLS-capable. webMANftpd is
+#     plain-only, so the TLS ClientHello draws a non-TLS reply and lftp aborts
+#     with "gnutls_handshake: An unexpected TLS packet was received".
+#   * connection-limit 1 + mirror parallel/pget = 1 — webMAN accepts only ONE
+#     connection at a time; any second/parallel socket gets "Connection
+#     refused". Keep every transfer strictly serial within the process. The
+#     caller must also serialize jobs (MAX_DISPATCH=1) so two lftp processes
+#     don't hit the server at once.
 lftp <<LFTP_SCRIPT
+set ftp:ssl-allow no
+set ftp:ssl-force no
+set ssl:verify-certificate no
 set ftp:passive-mode yes
 set net:max-retries 3
 set net:reconnect-interval-base 5
+set net:connection-limit 1
+set mirror:parallel-transfer-count 1
+set mirror:use-pget-n 1
 open -u "$FTP_USER,$FTP_PASS" -p "$port" "$FTP_HOST"
 mirror -R --continue --verbose "$src" "$remote_path"
 quit
